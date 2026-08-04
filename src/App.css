@@ -1,0 +1,5 @@
+/* App-level overrides — Vite boilerplate removed to prevent
+   conflicting scroll containers and layout constraints. */
+#root {
+  min-height: 100vh;
+}
