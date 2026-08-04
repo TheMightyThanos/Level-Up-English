@@ -307,7 +307,7 @@ export default function TestPage() {
         timeLeft={state.timeLeft}
         mode={state.mode}
         userName={state.userData.name}
-        userNim={state.userData.nim}
+        userNim={state.userData.email}
         answeredCount={answeredCount}
         totalQuestions={totalQuestions}
         currentSection={state.currentSection}

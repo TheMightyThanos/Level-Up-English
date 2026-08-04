@@ -87,13 +87,7 @@ export default function ResultsPage() {
     red: 'from-rose-500 to-red-600 text-rose-50 border-rose-400/30 shadow-rose-500/20',
   };
 
-  const perfColorMap: Record<string, string> = {
-    green: 'from-emerald-400 to-teal-500 text-emerald-50 border-emerald-400/30 shadow-emerald-500/20',
-    blue: 'from-blue-400 to-indigo-500 text-blue-50 border-blue-400/30 shadow-blue-500/20',
-    indigo: 'from-violet-500 to-indigo-600 text-violet-50 border-violet-400/30 shadow-violet-500/20',
-    yellow: 'from-amber-400 to-orange-500 text-amber-50 border-amber-400/30 shadow-amber-500/20',
-    red: 'from-rose-500 to-red-600 text-rose-50 border-rose-400/30 shadow-rose-500/20',
-  };
+
 
   const completedAt = new Date();
   const dateStr = completedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
