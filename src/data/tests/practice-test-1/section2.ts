@@ -171,8 +171,13 @@ export const section2Questions: RawQuestion[] = [
   },
   {
     "id": 15,
-    "text": "According to the World Health Organization, ______ any of the six most dangerous diseases to break out, it",
-    "options": [],
+    "text": "According to the World Health Organization, ______ any of the six most dangerous diseases to break out, it could be cause for quarantine.",
+    "options": [
+      "were",
+      "they were",
+      "there were",
+      "were they"
+    ],
     "key": 0,
     "explanation": ""
   },

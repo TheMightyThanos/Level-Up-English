@@ -592,7 +592,12 @@ export const section1Questions: RawQuestion[] = [
   {
     "id": 50,
     "text": "",
-    "options": [],
+    "options": [
+      "Heredity",
+      "Environment",
+      "Idealism",
+      "Natural laws"
+    ],
     "key": 2,
     "explanation": ""
   }
