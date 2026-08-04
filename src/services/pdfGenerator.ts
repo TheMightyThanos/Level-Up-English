@@ -12,58 +12,11 @@ function formatElapsed(seconds: number): string {
 }
 
 export function downloadResultsPDF(userData: UserData, results: TestResults) {
-  const recommendations = generateRecommendations(results.analysis);
-
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-
   const raw = results.section3.raw;
   const total = results.section3.total;
   const pct = results.percentage;
   const scaled = results.section3.scaled;
   const elapsed = formatElapsed(results.completionSeconds);
-
-  // ---- Skill Mastery Breakdown ----
-  const skillRows = Object.entries(results.analysis.skillBreakdown)
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([skill, data]) => {
-      const accuracy = ((data.correct / data.total) * 100).toFixed(0);
-      const macro = MICROSKILL_TO_MACROSKILL[skill as keyof typeof MICROSKILL_TO_MACROSKILL] || 'Reading';
-      const tone =
-        +accuracy >= 80 ? '#16a34a' :
-        +accuracy >= 60 ? '#2563eb' :
-        +accuracy >= 40 ? '#ca8a04' : '#dc2626';
-      return `<tr>
-        <td style="border:1px solid #ccc;padding:6px;font-weight:bold;">${escapeHtml(skill)}</td>
-        <td style="border:1px solid #ccc;padding:6px;font-size:9px;color:#666;">${escapeHtml(macro)}</td>
-        <td style="border:1px solid #ccc;padding:6px;text-align:center;font-weight:bold;">${data.correct}/${data.total}</td>
-        <td style="border:1px solid #ccc;padding:6px;text-align:center;font-weight:bold;color:${tone};">${accuracy}%</td>
-      </tr>`;
-    }).join('');
-
-  // ---- Recommendations ----
-  const recsHtml = recommendations.length > 0 ? `
-    <h2 style="color:#4338ca;margin-top:25px;margin-bottom:8px;font-size:14px;">Suggestions for Autonomous Learning</h2>
-    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:20px;">
-      <thead><tr style="background-color:#4338ca;color:white;">
-        <th style="border:1px solid #ccc;padding:5px;text-align:left;">Microskill</th>
-        <th style="border:1px solid #ccc;padding:5px;text-align:center;width:10%;">Accuracy</th>
-        <th style="border:1px solid #ccc;padding:5px;text-align:center;width:10%;">Priority</th>
-        <th style="border:1px solid #ccc;padding:5px;text-align:left;">Recommendation</th>
-      </tr></thead>
-      <tbody>
-        ${recommendations.map(rec => {
-          const bg = rec.priority === 'critical' ? '#fee2e2' : rec.priority === 'high' ? '#fef3c7' : '#f0f9ff';
-          return `<tr style="background-color:${bg};">
-            <td style="border:1px solid #ccc;padding:5px;font-weight:bold;">${escapeHtml(rec.skill)}</td>
-            <td style="border:1px solid #ccc;padding:5px;text-align:center;font-weight:bold;">${escapeHtml(rec.accuracy)}%</td>
-            <td style="border:1px solid #ccc;padding:5px;text-align:center;text-transform:uppercase;font-size:9px;font-weight:bold;">${escapeHtml(rec.priority)}</td>
-            <td style="border:1px solid #ccc;padding:5px;">${escapeHtml(rec.message)}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>` : '';
 
   // ---- Wrong items ----
   const wrongItems = results.analysis.wrongQuestions;
@@ -72,7 +25,6 @@ export function downloadResultsPDF(userData: UserData, results: TestResults) {
     <table style="width:100%;border-collapse:collapse;font-size:10px;">
       <thead><tr style="background-color:#4338ca;color:white;">
         <th style="border:1px solid #ccc;padding:5px;width:5%;">#</th>
-        <th style="border:1px solid #ccc;padding:5px;width:14%;">Microskill</th>
         <th style="border:1px solid #ccc;padding:5px;">Question</th>
         <th style="border:1px solid #ccc;padding:5px;width:18%;">Your Answer</th>
         <th style="border:1px solid #ccc;padding:5px;width:18%;">Correct Answer</th>
@@ -80,7 +32,6 @@ export function downloadResultsPDF(userData: UserData, results: TestResults) {
       <tbody>
         ${wrongItems.map(q => `<tr style="background-color:#fef2f2;">
           <td style="border:1px solid #ccc;padding:5px;text-align:center;">${q.number}</td>
-          <td style="border:1px solid #ccc;padding:5px;font-size:9px;">${escapeHtml(q.skill || '-')}</td>
           <td style="border:1px solid #ccc;padding:5px;font-size:9px;">${escapeHtml(q.question)}</td>
           <td style="border:1px solid #ccc;padding:5px;font-weight:bold;color:#dc2626;font-size:9px;">${escapeHtml(q.userAnswer)}</td>
           <td style="border:1px solid #ccc;padding:5px;font-weight:bold;color:#16a34a;font-size:9px;">${escapeHtml(q.correctAnswer)}</td>
@@ -142,19 +93,6 @@ export function downloadResultsPDF(userData: UserData, results: TestResults) {
     </div>
   </div>
 
-  <h2 style="margin-top:25px;margin-bottom:8px;font-size:14px;">Skill Mastery Breakdown (Brown's Taxonomy)</h2>
-  <p class="note">Microskill-level accuracy to guide autonomous reading practice.</p>
-  <table>
-    <thead><tr>
-      <th style="text-align:left;">Microskill</th>
-      <th style="text-align:left;width:25%;">Macroskill</th>
-      <th style="width:12%;">Correct</th>
-      <th style="width:12%;">Accuracy</th>
-    </tr></thead>
-    <tbody>${skillRows}</tbody>
-  </table>
-
-  ${recsHtml}
   ${wrongHtml}
 
   <div style="margin-top:25px;padding-top:12px;border-top:2px solid #4338ca;font-size:8px;color:#666;text-align:center;line-height:1.7;">

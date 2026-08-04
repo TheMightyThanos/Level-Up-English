@@ -87,8 +87,13 @@ export default function ResultsPage() {
     red: 'from-rose-500 to-red-600 text-rose-50 border-rose-400/30 shadow-rose-500/20',
   };
 
-  const skillEntries = Object.entries(results.analysis.skillBreakdown)
-    .sort((a, b) => (b[1].total - a[1].total));
+  const perfColorMap: Record<string, string> = {
+    green: 'from-emerald-400 to-teal-500 text-emerald-50 border-emerald-400/30 shadow-emerald-500/20',
+    blue: 'from-blue-400 to-indigo-500 text-blue-50 border-blue-400/30 shadow-blue-500/20',
+    indigo: 'from-violet-500 to-indigo-600 text-violet-50 border-violet-400/30 shadow-violet-500/20',
+    yellow: 'from-amber-400 to-orange-500 text-amber-50 border-amber-400/30 shadow-amber-500/20',
+    red: 'from-rose-500 to-red-600 text-rose-50 border-rose-400/30 shadow-rose-500/20',
+  };
 
   const completedAt = new Date();
   const dateStr = completedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -160,104 +165,7 @@ export default function ResultsPage() {
           ))}
         </div>
 
-        {/* Skill Mastery Breakdown */}
-        <motion.div {...fadeUp(0.5)} className="p-6 sm:p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md mb-10">
-          <div className="flex items-center gap-3 mb-2">
-            <Target className="w-6 h-6 text-violet-400" />
-            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Taxonomy Analysis</h2>
-          </div>
-          <p className="text-sm text-white/50 mb-8">Detailed breakdown mapped to Brown's Taxonomy of reading microskills.</p>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {skillEntries.map(([skill, data], idx) => {
-              const pct = (data.correct / data.total) * 100;
-              const isLow = pct < 60;
-              const isPriority = skill === 'Inference and Implied Meaning' && isLow;
-              
-              const barColor = pct >= 80 ? 'bg-emerald-400' : pct >= 60 ? 'bg-blue-400' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-500';
-              
-              return (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.6 + idx * 0.05 }}
-                  key={skill} 
-                  className={`p-5 rounded-2xl border bg-black/20 ${isPriority ? 'border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.15)]' : 'border-white/5 hover:border-white/10'} transition-colors`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="pr-2">
-                      <div className="font-bold text-white/90 text-sm mb-1">{skill}</div>
-                      <div className="text-[10px] text-white/40 uppercase tracking-widest">
-                        {MICROSKILL_TO_MACROSKILL[skill as keyof typeof MICROSKILL_TO_MACROSKILL] || 'Reading'}
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="font-black text-white text-base">{data.correct}/{data.total}</div>
-                      <div className="text-[11px] text-white/50">{pct.toFixed(0)}%</div>
-                    </div>
-                  </div>
 
-                  <div className="w-full bg-white/5 rounded-full h-1.5 mt-4 mb-2 overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${pct}%` }}
-                      transition={{ duration: 1, ease: "easeOut", delay: 0.8 }}
-                      className={`h-1.5 rounded-full ${barColor}`}
-                    />
-                  </div>
-
-                  {isPriority && (
-                    <div className="mt-3 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-start gap-2">
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400 mt-0.5 flex-shrink-0" />
-                      <span className="text-[11px] text-rose-300 font-medium leading-relaxed">
-                        Priority Area: Your MA12 (Inference) score is below 60%. Focus on reading between the lines.
-                      </span>
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </div>
-        </motion.div>
-
-
-        {/* Tab Switch Warning */}
-        {state.mode === 'exam' && state.tabSwitchCount > 0 && (
-          <motion.div {...fadeUp(0.7)} className="mb-10 p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-4">
-            <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0" />
-            <div>
-              <div className="text-sm font-bold text-amber-500 mb-0.5">Integrity Warning</div>
-              <div className="text-xs text-amber-500/70">
-                You switched tabs or left the window <strong className="text-amber-400">{state.tabSwitchCount} time(s)</strong> during the examination.
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Recommendations */}
-        {recommendations.length > 0 && (
-          <motion.div {...fadeUp(0.8)} className="p-6 sm:p-8 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md mb-10">
-            <div className="flex items-center gap-3 mb-6">
-              <TrendingUp className="w-6 h-6 text-emerald-400" />
-              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Strategic Recommendations</h2>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {recommendations.map((rec, idx) => (
-                <div key={idx} className={`p-5 rounded-2xl border flex gap-4 ${
-                  rec.priority === 'critical' ? 'bg-rose-500/10 border-rose-500/20' : 'bg-black/20 border-white/5'
-                }`}>
-                  <div className={`text-2xl font-black ${rec.priority === 'critical' ? 'text-rose-400' : 'text-emerald-400'} pt-1`}>
-                    {rec.accuracy}%
-                  </div>
-                  <div>
-                    <div className="font-bold text-white/90 text-sm mb-1">{rec.skill}</div>
-                    <div className="text-xs text-white/60 leading-relaxed">{rec.message}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
 
         {/* Wrong Answers */}
         {results.analysis.wrongQuestions.length > 0 ? (
@@ -274,10 +182,7 @@ export default function ResultsPage() {
                       {item.number}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2 py-1 rounded bg-violet-500/20 text-violet-300 text-[10px] font-bold uppercase tracking-wider">Reading</span>
-                      {item.skill && (
-                        <span className="px-2 py-1 rounded bg-white/10 text-white/60 text-[10px] uppercase tracking-wider">{item.skill}</span>
-                      )}
+                      <span className="px-2 py-1 rounded bg-violet-500/20 text-violet-300 text-[10px] font-bold uppercase tracking-wider">Question</span>
                     </div>
                   </div>
                   <div className="p-5">
@@ -301,15 +206,6 @@ export default function ResultsPage() {
                         <div className="text-sm text-emerald-200/80 font-medium">{item.correctAnswer}</div>
                       </div>
                     </div>
-                    {item.explanation && (
-                      <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                        <div className="flex items-center gap-2 mb-1.5 text-violet-400">
-                          <Lightbulb className="w-3.5 h-3.5" />
-                          <span className="text-[11px] font-bold uppercase tracking-wider">Explanation</span>
-                        </div>
-                        <div className="text-xs text-white/60 leading-relaxed">{item.explanation}</div>
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}

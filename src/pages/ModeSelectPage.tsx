@@ -100,24 +100,33 @@ export default function ModeSelectPage() {
           {(['exam', 'study'] as TestMode[]).map((mode, idx) => {
             const cfg = modeConfigs[mode];
             const Icon = cfg.icon;
+            const isStudy = mode === 'study';
             return (
               <motion.div
                 key={mode}
                 {...fadeUp(0.4 + idx * 0.15)}
-                onClick={() => handleSelectMode(mode)}
-                className={`group relative rounded-2xl sm:rounded-3xl p-6 sm:p-8 cursor-pointer transition-all duration-300 overflow-hidden border border-white/10 bg-white/5 backdrop-blur-xl hover:bg-white/10 ${cfg.borderHover} hover:shadow-2xl ${cfg.shadow}`}
+                onClick={() => !isStudy && handleSelectMode(mode)}
+                className={`group relative rounded-2xl sm:rounded-3xl p-6 sm:p-8 transition-all duration-300 overflow-hidden border border-white/10 bg-white/5 backdrop-blur-xl ${
+                  isStudy ? 'opacity-50 cursor-not-allowed' : `cursor-pointer hover:bg-white/10 ${cfg.borderHover} hover:shadow-2xl ${cfg.shadow}`
+                }`}
               >
                 {/* Glow behind card */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${cfg.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`} />
+                {!isStudy && <div className={`absolute inset-0 bg-gradient-to-br ${cfg.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`} />}
                 
                 {/* Icon Header */}
                 <div className="flex items-start justify-between mb-5 sm:mb-8">
-                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${cfg.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${cfg.gradient} flex items-center justify-center shadow-lg ${!isStudy && 'group-hover:scale-110'} transition-transform duration-300`}>
                     <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div className="hidden sm:flex w-10 h-10 rounded-full bg-white/5 items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors">
-                    <ArrowRight className="w-4 h-4 text-white/40 group-hover:text-white transition-colors" />
-                  </div>
+                  {!isStudy ? (
+                    <div className="hidden sm:flex w-10 h-10 rounded-full bg-white/5 items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors">
+                      <ArrowRight className="w-4 h-4 text-white/40 group-hover:text-white transition-colors" />
+                    </div>
+                  ) : (
+                    <div className="px-3 py-1 rounded-full bg-white/10 border border-white/20 text-[10px] font-bold text-white/70 uppercase tracking-widest">
+                      Coming Soon
+                    </div>
+                  )}
                 </div>
 
                 {/* Text content */}
@@ -127,7 +136,7 @@ export default function ModeSelectPage() {
                 {/* Features list */}
                 <div className="space-y-2 sm:space-y-3">
                   {cfg.features.map((f, i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 sm:p-3.5 rounded-lg sm:rounded-xl bg-black/20 border border-white/5 group-hover:border-white/10 transition-colors">
+                    <div key={i} className={`flex items-center gap-3 p-3 sm:p-3.5 rounded-lg sm:rounded-xl bg-black/20 border border-white/5 ${!isStudy && 'group-hover:border-white/10'} transition-colors`}>
                       <f.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white/70" />
                       <span className="text-[11px] sm:text-[13px] font-medium text-white/80">{f.text}</span>
                     </div>
