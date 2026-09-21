@@ -819,7 +819,7 @@ export default function TestPage() {
   else if (activeSectionKey === 'section3' && qNum === 1) instruction = INSTRUCTIONS.s3_general;
 
   return (
-    <div className={`${isDarkMode ? 'dark' : ''} bg-background flex flex-col h-[100dvh] overflow-hidden text-foreground transition-colors duration-300`}>
+    <div className={`${isDarkMode ? 'dark' : ''} bg-background flex flex-col h-screen h-[100dvh] overflow-hidden text-foreground transition-colors duration-300`}>
       {/* Section Countdown */}
       <AnimatePresence>
         {showCountdown && (
