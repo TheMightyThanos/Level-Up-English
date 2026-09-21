@@ -334,8 +334,8 @@ export default function TestPage() {
 
           let cleanedText = cleanQuestionSentence(q.question_text || q.text || `Question ${q.question_number || idx + 1}`);
 
-          // Structure Part B is usually question 16-40
-          const isPartB = type === 'structure' && qNum >= 16 && qNum <= 40;
+          // Structure Part B is usually question 16-40 (if numbered 1-40) or 66-90 (if numbered 1-140)
+          const isPartB = type === 'structure' && ((qNum >= 16 && qNum <= 40) || (qNum >= 66 && qNum <= 90));
           if (isPartB) {
             const opts = rawOptions.filter((o: string) => o.trim().length > 0).sort((a: string, b: string) => b.length - a.length);
             const marker = `(?:\\([A-Da-d]\\)|[A-Da-d]\\.)`;
