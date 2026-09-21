@@ -414,8 +414,6 @@ export default function AdminPage() {
           option_d: optD,
           correct_answer: ans,
           explanation: q.explanation || null,
-          skill: q.skill || null,
-          passage_title: q.passage_title || null,
           passage_text: q.passage_text || null,
           audio_url: audioUrl
         };
@@ -439,9 +437,14 @@ export default function AdminPage() {
         if (batchError) throw batchError;
       }
 
+      const targetPkg = packages.find(p => p.id === targetPackageId);
+      const pkgTitleDisplay = importTargetMode === 'new' 
+        ? (importTitle || 'Exam Package') 
+        : (targetPkg?.title || targetPackageId);
+
       toast({
         title: '🎉 Import Berhasil!',
-        description: `Berhasil menambahkan paket "${importTitle || 'Exam Package'}" beserta ${formattedQuestions.length} soal ke Supabase!`,
+        description: `Berhasil menambahkan ${formattedQuestions.length} soal ke paket "${pkgTitleDisplay}" di Supabase!`,
       });
 
       setIsImportModalOpen(false);
@@ -487,9 +490,7 @@ export default function AdminPage() {
         option_d: editingQuestion.option_d,
         correct_answer: editingQuestion.correct_answer,
         explanation: editingQuestion.explanation || null,
-        skill: editingQuestion.skill || null,
         audio_url: editingQuestion.section_type === 'listening' ? (editingQuestion.audio_url || null) : null,
-        passage_title: editingQuestion.section_type === 'reading' ? (editingQuestion.passage_title || null) : null,
         passage_text: editingQuestion.section_type === 'reading' ? (editingQuestion.passage_text || null) : null,
       };
 
@@ -1365,7 +1366,12 @@ export default function AdminPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setImportTargetMode('existing')}
+                    onClick={() => {
+                      setImportTargetMode('existing');
+                      if (!importTargetPackageId && packages.length > 0) {
+                        setImportTargetPackageId(selectedPackageId !== 'all' ? selectedPackageId : packages[0].id);
+                      }
+                    }}
                     className={`p-3 rounded-xl border text-left transition ${importTargetMode === 'existing' ? 'border-emerald-500 bg-emerald-500/10 text-white' : 'border-slate-800 bg-slate-950 text-slate-400'}`}
                   >
                     <span className="text-xs font-bold block">📁 Insert into Existing Package</span>
@@ -1417,21 +1423,39 @@ export default function AdminPage() {
                   </div>
                 </div>
               ) : (
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Select Target Package *
-                  </label>
-                  <select 
-                    value={importTargetPackageId}
-                    onChange={e => setImportTargetPackageId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-slate-950 text-sm text-white"
-                    required
-                  >
-                    <option value="">-- Choose Exam Package --</option>
-                    {packages.map(p => (
-                      <option key={p.id} value={p.id}>{p.title} ({p.id.slice(0, 8)}...)</option>
-                    ))}
-                  </select>
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Select Target Package *
+                    </label>
+                    <select 
+                      value={importTargetPackageId}
+                      onChange={e => setImportTargetPackageId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-800 bg-slate-950 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      required
+                    >
+                      <option value="">-- Choose Exam Package --</option>
+                      {packages.map(p => (
+                        <option key={p.id} value={p.id}>{p.title} ({p.id})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {importTargetPackageId && (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-white block">
+                          Target: {packages.find(p => p.id === importTargetPackageId)?.title || importTargetPackageId}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          UUID: {importTargetPackageId}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+                        Ready to attach
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
