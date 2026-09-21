@@ -146,7 +146,7 @@ export default function DashboardPage() {
         .select(`
           user_id,
           score,
-          profiles!inner(full_name)
+          profiles(full_name)
         `);
 
       if (!globalErr && globalData) {
@@ -182,7 +182,7 @@ export default function DashboardPage() {
           user_id,
           score,
           package_id,
-          profiles!inner(full_name)
+          profiles(full_name)
         `)
         .order('score', { ascending: false })
         .limit(20);
@@ -232,7 +232,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: "#030014" }}>
+    <div className="min-h-screen flex flex-col relative" style={{ background: "#030014" }}>
       {/* ── Background orbs ── */}
       <Orb className="w-[700px] h-[700px] -top-[300px] -right-[200px] bg-violet-600/30" delay={0} />
       <Orb className="w-[500px] h-[500px] -bottom-[200px] -left-[100px] bg-indigo-500/25" delay={3} />

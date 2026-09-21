@@ -109,7 +109,7 @@ export default function ResultsPage() {
   };
 
   useEffect(() => {
-    if (!results || !state.userData.name || hasSubmitted.current || state.mode === 'study') return;
+    if (!results || !state.userData.name || hasSubmitted.current) return;
     hasSubmitted.current = true;
     runSubmission();
     // eslint-disable-next-line react-hooks/exhaustive-deps

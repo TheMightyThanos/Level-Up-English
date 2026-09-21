@@ -74,6 +74,7 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/analysis" element={<ItemAnalysisDashboard />} />
             <Route path="/test" element={<Suspense fallback={<LoadingScreen />}><TestPage /></Suspense>} />
+            <Route path="/results" element={<Suspense fallback={<LoadingScreen />}><ResultsPage /></Suspense>} />
             <Route path="/about-app" element={<AboutAppPage />} />
             <Route path="/about-researcher" element={<AboutResearcherPage />} />
             <Route path="/study-tips" element={<StudyTipsPage />} />

@@ -163,7 +163,7 @@ export default function ReadingPanel({ title, text, highlight, highlightLine, pu
       </div>
 
       {/* Content area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto reading-scroll">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto test-scrollbar reading-scroll">
         <div className="py-3 sm:py-6 px-4 sm:px-8">
           {paragraphs.map((para, idx) => {
             const meta = paragraphMeta[idx];

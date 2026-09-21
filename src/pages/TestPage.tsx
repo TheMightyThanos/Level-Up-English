@@ -114,7 +114,7 @@ export default function TestPage() {
   let currentSectionData = state.testData?.[activeSectionKey];
 
   if ((!currentSectionData?.questions || currentSectionData.questions.length === 0) && state.testData) {
-    const fallbackSection = (['section3', 'section1', 'section2'] as SectionKey[]).find(
+    const fallbackSection = (['section1', 'section2', 'section3'] as SectionKey[]).find(
       (sec) => state.testData?.[sec]?.questions && state.testData[sec].questions.length > 0
     );
     if (fallbackSection) {
@@ -279,7 +279,18 @@ export default function TestPage() {
           return;
         }
 
-        let audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Soal%20TEST%202.mp3'; // Fallback
+        // Detect if this package contains Test 4 questions
+        const isTest4 =
+          packageId === '28ed5a50-31f3-4dd4-b229-3826e7510996' ||
+          data.some((q: any) =>
+            q.option_a === 'Her concerns were expressed.' ||
+            (q.question_text && q.question_text.includes('concert'))
+          );
+
+        // Correct audio for Test 4 is served from /audio/Listening Soal TEST 4.mp3
+        let audioFile = isTest4
+          ? '/audio/Listening Soal TEST 4.mp3'
+          : 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Soal%20TEST%202.mp3';
 
         const testData = {
           section1: { name: "Listening Comprehension", duration: 35, questions: [] },
@@ -287,14 +298,25 @@ export default function TestPage() {
           section3: { name: "Reading Comprehension", duration: 55, questions: [] },
         };
 
-        data.forEach((q, idx) => {
+        // Deduplicate rows by section_type and question_number (avoids multiple imports clutter)
+        const seenQ = new Set<string>();
+        const uniqueData = data.filter((q: any, idx: number) => {
+          const type = (q.section_type || '').toLowerCase().trim();
+          const qNum = Number(q.question_number) || (idx + 1);
+          const key = `${type}-${qNum}`;
+          if (seenQ.has(key)) return false;
+          seenQ.add(key);
+          return true;
+        });
+
+        uniqueData.forEach((q: any, idx: number) => {
           // Robust fallback mapping for options regardless of database structure
           const rawOptions = [
             q.option_a || q.options?.[0] || '',
             q.option_b || q.options?.[1] || '',
             q.option_c || q.options?.[2] || '',
             q.option_d || q.options?.[3] || ''
-          ].map((opt) => sanitizeOptionText(opt));
+          ].map((opt: string) => sanitizeOptionText(opt));
 
           const rawKey =
             q.correct_answer ??
@@ -307,8 +329,36 @@ export default function TestPage() {
           const resolved = resolveCorrectAnswer(rawOptions, rawKey);
           const correctText = resolved.text || (typeof rawKey === 'string' ? sanitizeOptionText(rawKey) : '');
 
+          const type = (q.section_type || '').toLowerCase().trim();
+          const qNum = Number(q.question_number) || (idx + 1);
+
+          let cleanedText = cleanQuestionSentence(q.question_text || q.text || `Question ${q.question_number || idx + 1}`);
+
+          // Structure Part B is usually question 16-40
+          const isPartB = type === 'structure' && qNum >= 16 && qNum <= 40;
+          if (isPartB) {
+            const opts = rawOptions.filter((o: string) => o.trim().length > 0).sort((a: string, b: string) => b.length - a.length);
+            const marker = `(?:\\([A-Da-d]\\)|[A-Da-d]\\.)`;
+            opts.forEach((opt: string) => {
+              if (opt.length < 1) return;
+              const escapedOpt = opt.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex1 = new RegExp(`${marker}\\s*(${escapedOpt})`, 'gi');
+              const regex2 = new RegExp(`(${escapedOpt})\\s*${marker}`, 'gi');
+              
+              if (regex1.test(cleanedText)) {
+                cleanedText = cleanedText.replace(regex1, '<u class="underline decoration-2 underline-offset-4 decoration-primary font-semibold text-foreground">$1</u>');
+              } else if (regex2.test(cleanedText)) {
+                cleanedText = cleanedText.replace(regex2, '<u class="underline decoration-2 underline-offset-4 decoration-primary font-semibold text-foreground">$1</u>');
+              } else {
+                const regex3 = new RegExp(`\\b(${escapedOpt})\\b`, 'gi');
+                cleanedText = cleanedText.replace(regex3, '<u class="underline decoration-2 underline-offset-4 decoration-primary font-semibold text-foreground">$1</u>');
+              }
+            });
+            cleanedText = cleanedText.replace(new RegExp(`\\s*${marker}\\s*`, 'gi'), ' ').replace(/\s{2,}/g, ' ').trim();
+          }
+
           const processedQ = {
-            text: cleanQuestionSentence(q.question_text || q.text || `Question ${q.question_number || idx + 1}`),
+            text: cleanedText,
             options: rawOptions,
             key: resolved.index >= 0 ? resolved.index : (typeof q.key === 'number' ? q.key : 0),
             correct_answer: correctText,
@@ -324,11 +374,17 @@ export default function TestPage() {
             shuffledOptions: processOptions(rawOptions, rawKey)
           };
 
-          const type = (q.section_type || '').toLowerCase().trim();
-          const qNum = Number(q.question_number) || (idx + 1);
-
           if (type === 'listening' || (!type && qNum <= 50)) {
-            if (q.audio_url) audioFile = q.audio_url;
+            if (q.audio_url) {
+              if (packageId && packageId.length > 20) {
+                // Force correct audio for UUID packages
+                audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Test%201-Longman.mp3';
+              } else if (isTest4 && (q.audio_url.includes('TEST%202') || q.audio_url.includes('TEST 2'))) {
+                audioFile = '/audio/Listening Soal TEST 4.mp3';
+              } else {
+                audioFile = q.audio_url;
+              }
+            }
             testData.section1.questions.push(processedQ as any);
           } else if (type === 'structure' || (!type && qNum > 50 && qNum <= 90)) {
             testData.section2.questions.push(processedQ as any);
@@ -339,7 +395,7 @@ export default function TestPage() {
           }
         });
 
-        dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile } });
+        dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile, preserveState: state.isRestored } });
       } catch (err: any) {
         console.error('Data fetch error:', err);
         setError(err.message || 'Failed to fetch test data.');
@@ -503,7 +559,7 @@ export default function TestPage() {
   // Navigate to results when test is submitted
   useEffect(() => {
     if (state.isTestSubmitted && state.view === 'results') {
-      navigate('/', { replace: true });
+      navigate('/results', { replace: true });
     }
   }, [state.isTestSubmitted, state.view, navigate]);
 
@@ -763,7 +819,7 @@ export default function TestPage() {
   else if (activeSectionKey === 'section3' && qNum === 1) instruction = INSTRUCTIONS.s3_general;
 
   return (
-    <div className={`${isDarkMode ? 'dark' : ''} bg-background flex flex-col ${isReadingSection ? 'h-screen overflow-hidden' : 'min-h-screen'} text-foreground transition-colors duration-300`}>
+    <div className={`${isDarkMode ? 'dark' : ''} bg-background flex flex-col h-[100dvh] overflow-hidden text-foreground transition-colors duration-300`}>
       {/* Section Countdown */}
       <AnimatePresence>
         {showCountdown && (
@@ -806,9 +862,9 @@ export default function TestPage() {
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
 
-      <main className="flex-1 pt-12 sm:pt-16 flex flex-col overflow-hidden">
+      <main className="flex-1 min-h-0 pt-12 sm:pt-16 flex flex-col overflow-hidden">
         {activeSectionKey === 'section1' && state.audioFile && (
-          <div className="w-full bg-card/80 backdrop-blur border-b border-border p-3 z-20 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="w-full bg-card/80 backdrop-blur border-b border-border p-3 z-20 flex flex-col sm:flex-row items-center justify-center gap-4 flex-shrink-0">
             <span className="text-sm font-semibold text-primary/80 hidden sm:inline-block">Listening Audio</span>
             
             {state.mode === 'study' ? (
@@ -892,7 +948,7 @@ export default function TestPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
-          className={`flex-1 flex ${isReadingSection ? 'flex-col lg:flex-row overflow-hidden' : 'flex-col'} ${isReadingSection ? 'w-full' : 'max-w-7xl mx-auto w-full'}`}
+          className={`flex-1 min-h-0 flex ${isReadingSection ? 'flex-col lg:flex-row overflow-hidden' : 'flex-col overflow-hidden'} ${isReadingSection ? 'w-full' : 'max-w-7xl mx-auto w-full'}`}
         >
           {isReadingSection && currentQuestion.passageText && (
             <div className={`${mobileView === 'passage' ? 'flex' : 'hidden'} lg:flex lg:w-1/2 min-h-0 flex-1 flex-col overflow-hidden`}>

@@ -71,7 +71,7 @@ type TestAction =
   | { type: 'SET_MODE'; payload: TestMode }
   | { type: 'SET_SELECTED_TEST'; payload: string }
   | { type: 'START_TEST'; payload?: { testData: TestData; audioFile: string } }
-  | { type: 'SET_TEST_DATA'; payload: { testData: TestData; audioFile: string } }
+  | { type: 'SET_TEST_DATA'; payload: { testData: TestData; audioFile: string; preserveState?: boolean } }
   | { type: 'SET_SECTION'; payload: SectionKey }
   | { type: 'SET_QUESTION_INDEX'; payload: number }
   | { type: 'SET_ANSWER'; payload: { section: SectionKey; index: number; answer: string } }
@@ -143,7 +143,14 @@ function testReducer(state: TestState, action: TestAction): TestState {
       };
     }
     case 'SET_TEST_DATA': {
-      const { testData, audioFile } = action.payload;
+      const { testData, audioFile, preserveState } = action.payload;
+      if (preserveState) {
+        return {
+          ...state,
+          testData,
+          audioFile,
+        };
+      }
       const now = Date.now();
       // Determine the first section that has questions
       const firstSection: SectionKey = testData?.section1?.questions?.length ? 'section1'
@@ -245,7 +252,14 @@ function testReducer(state: TestState, action: TestAction): TestState {
       };
     case 'RESTORE_SESSION': {
       const saved = action.payload;
-      const { testData, audioFile } = initializeTestData(saved.selectedTestId);
+      const isMock = saved.selectedTestId === 'practice-test-1' || saved.selectedTestId === 'mock-skripsi' || saved.selectedTestId === 'reading-only' || saved.selectedTestId === 'default' || saved.selectedTestId === 'reading-section-only';
+      let testData = null;
+      let audioFile = '';
+      if (isMock) {
+        const initialized = initializeTestData(saved.selectedTestId);
+        testData = initialized.testData;
+        audioFile = initialized.audioFile;
+      }
       const now = Date.now();
       const remaining = Math.max(0, Math.ceil((saved.targetEndTime - now) / 1000));
       return {

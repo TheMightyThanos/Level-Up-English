@@ -29,7 +29,7 @@ export default function QuestionPanel({
   const isCorrect = userAnswer === correctText;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Header */}
       <div className="p-3 sm:p-6 bg-card border-b border-border flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-4">
@@ -50,7 +50,7 @@ export default function QuestionPanel({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-muted/30">
+      <div className="flex-1 overflow-y-auto test-scrollbar p-4 sm:p-8 bg-muted/30">
         {/* Instruction */}
         {instruction && (
           <motion.div
