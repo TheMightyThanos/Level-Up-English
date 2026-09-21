@@ -1,14 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useTest } from "@/context/TestContext";
-import { signIn } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { signUp } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  GraduationCap, ArrowRight, KeyRound,
-  BookOpen, Shield, ChevronRight, User,
-  Sparkles, Brain, Target, Clock, UserPlus,
+  GraduationCap, ArrowRight, User, Hash, Mail,
+  KeyRound, AtSign, Sparkles, BookOpen, Brain,
+  Target, Clock, Shield, ChevronRight, LogIn,
   Eye, EyeOff,
 } from "lucide-react";
 
@@ -79,73 +77,67 @@ const inputClass =
   "w-full px-4 py-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border border-slate-200/80 text-slate-800 placeholder:text-slate-400 text-[13px] font-semibold focus:outline-none focus:ring-[3px] focus:ring-violet-500/20 focus:border-violet-500 focus:bg-white transition-all duration-300 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.02)]";
 
 /* ══════════════════════════════════════════════════════════════ */
-export default function LoginPage() {
-  const { dispatch } = useTest();
+export default function SignUpPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  useEffect(() => { document.title = "Digitalized EPT Reading Preparation"; }, []);
+  useEffect(() => { document.title = "Sign Up — Digitalized EPT Reading Preparation"; }, []);
 
-  // Redirect to dashboard if user is already logged in
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        navigate("/dashboard", { replace: true });
-      }
-    };
-    checkSession();
-  }, [navigate]);
-
-  const [identifier, setIdentifier] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [nim, setNim] = useState("");
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: string[] = [];
 
-    if (identifier.trim().length < 1) errs.push("Masukkan email atau NIM Anda.");
-    if (password.length < 1) errs.push("Masukkan password Anda.");
+    if (fullName.trim().length < 3) errs.push("Full name must be at least 3 characters.");
+    if (nim.trim().length < 5) errs.push("NIM must be at least 5 characters.");
+    if (username.trim().length < 3) errs.push("Username must be at least 3 characters.");
+    if (password.length < 6) errs.push("Password must be at least 6 characters.");
+
+    // Institutional NIM validation — must start with "E1D0" (case-insensitive)
+    if (!nim.trim().toUpperCase().startsWith("E1D0")) {
+      errs.push("NIM harus berawalan E1D0.");
+      toast({ variant: "destructive", title: "NIM Tidak Valid", description: "NIM harus berawalan E1D0 (contoh: E1D022118)." });
+    }
+
+    // Institutional email validation — must end with @student.unram.ac.id
+    if (!email.trim().toLowerCase().endsWith("@student.unram.ac.id")) {
+      errs.push("Gunakan email institusi @student.unram.ac.id.");
+      toast({ variant: "destructive", title: "Email Tidak Valid", description: "Gunakan email institusi @student.unram.ac.id." });
+    }
 
     if (errs.length > 0) { setErrors(errs); return; }
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     setErrors([]);
 
-    const { data, error } = await signIn({
-      identifier: identifier.trim(),
+    const { error } = await signUp({
+      email: email.trim(),
       password,
+      username: username.trim(),
+      fullName: fullName.trim(),
+      nim: nim.trim(),
     });
 
-    setIsLoading(false);
+    setIsSubmitting(false);
 
     if (error) {
       setErrors([error.message]);
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: error.message,
-      });
       return;
     }
 
-    // Populate user data into TestContext from the Supabase session
-    if (data?.user) {
-      dispatch({
-        type: "SET_USER_DATA",
-        payload: {
-          name: data.user.user_metadata?.full_name || data.user.email || "",
-          nim: data.user.user_metadata?.nim || "",
-          semester: "",
-          gender: "",
-        },
-      });
-    }
+    toast({
+      title: "Account Created!",
+      description: "Your account has been registered successfully. Please log in.",
+    });
 
-    // Redirect directly to dashboard instead of TestContext view
-    navigate("/dashboard");
+    navigate("/login");
   };
 
   return (
@@ -153,7 +145,7 @@ export default function LoginPage() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{ background: "#030014" }}
     >
-      {/* ── Main layout row (orbs + hero + form) ── */}
+      {/* ── Main layout row ── */}
       <div className="flex flex-1 relative overflow-hidden">
         {/* ── Animated aurora orbs ── */}
         <Orb className="w-[800px] h-[800px] -top-[300px] -left-[200px] bg-violet-600/40" delay={0} />
@@ -194,22 +186,21 @@ export default function LoginPage() {
         <div className="hidden lg:flex flex-col justify-between flex-1 p-16 xl:p-20 relative z-10">
           <div />
 
-          {/* Centre hero copy */}
           <div className="max-w-xl">
             <motion.div {...fadeUp(0.2)} className="mb-6 inline-flex">
               <div className="flex items-center gap-2 px-4 py-2 rounded-full text-[11px] font-bold uppercase tracking-[0.2em] relative overflow-hidden border border-violet-400/20 bg-violet-500/10 backdrop-blur-md">
                 <div className="absolute inset-0 bg-gradient-to-r from-violet-500/0 via-violet-500/10 to-violet-500/0 animate-[shimmer_2s_infinite]" />
                 <Sparkles className="w-3.5 h-3.5 text-violet-300" />
-                <span className="text-violet-200">Undergraduate Thesis Platform</span>
+                <span className="text-violet-200">Create Your Account</span>
               </div>
             </motion.div>
 
             <motion.h1 {...fadeUp(0.3)} className="font-black text-white leading-[1.05] tracking-tight mb-8" style={{ fontSize: "clamp(2.5rem,4.5vw,4rem)" }}>
-              Digitalized{" "}
+              Join{" "}
               <span className="relative inline-block">
                 <span className="relative z-10 text-transparent bg-clip-text"
                   style={{ backgroundImage: "linear-gradient(135deg, #c4b5fd, #a78bfa, #818cf8)" }}>
-                  EPT Reading
+                  Digitalized EPT
                 </span>
                 <motion.span
                   className="absolute -bottom-1 left-0 h-[4px] rounded-full"
@@ -219,11 +210,11 @@ export default function LoginPage() {
                   transition={{ delay: 0.9, duration: 0.8, ease: "circOut" }}
                 />
               </span>{" "}
-              Preparation
+              Platform
             </motion.h1>
 
             <motion.p {...fadeUp(0.4)} className="text-base leading-relaxed max-w-md text-white/60 font-medium">
-              A specialized web-based platform designed to foster autonomous learning. Featuring 50 parallel-constructed EPT (English Proficiency Test) Reading Comprehension items, automated scoring, and diagnostic feedback to prepare you for the UMEPT.
+              Create your student account to access practice tests, diagnostic feedback, and prepare for the UMEPT.
             </motion.p>
 
             {/* Stat cards */}
@@ -243,7 +234,7 @@ export default function LoginPage() {
         </div>
 
         {/* ══════════ RIGHT — FORM PANEL ══════════ */}
-        <div className="flex items-center justify-center w-full lg:w-[500px] xl:w-[560px] flex-shrink-0 p-5 sm:p-8 lg:p-12 relative z-20">
+        <div className="flex items-center justify-center w-full lg:w-[520px] xl:w-[580px] flex-shrink-0 p-5 sm:p-8 lg:p-12 relative z-20">
           <motion.div
             initial={{ opacity: 0, x: 48 }}
             animate={{ opacity: 1, x: 0 }}
@@ -274,8 +265,8 @@ export default function LoginPage() {
               <div className="px-8 pt-8 pb-6 border-b border-slate-100/80 bg-white/50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-[19px] font-black text-slate-800 tracking-tight">Sign In to Platform</h2>
-                    <p className="text-[12px] text-slate-500 mt-1 font-medium">Enter your credentials to access the practice session.</p>
+                    <h2 className="text-[19px] font-black text-slate-800 tracking-tight">Create Account</h2>
+                    <p className="text-[12px] text-slate-500 mt-1 font-medium">Register to start your EPT preparation journey.</p>
                   </div>
                   <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-violet-100/50 shadow-sm"
                     style={{ background: "linear-gradient(135deg, hsl(258 84% 97%), hsl(280 60% 95%))" }}>
@@ -295,7 +286,7 @@ export default function LoginPage() {
                       exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                       className="p-4 rounded-2xl bg-red-50 border border-red-200 overflow-hidden"
                     >
-                      <p className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">Authentication Error</p>
+                      <p className="text-[11px] font-bold text-red-600 uppercase tracking-wider mb-2">Registration Error</p>
                       {errors.map((e, i) => (
                         <p key={i} className="flex items-start gap-1.5 text-xs text-red-500 font-medium">
                           <ChevronRight className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{e}
@@ -307,26 +298,67 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <motion.div {...fadeUp(0.2)}>
-                    <Field icon={User} label="Email / Username / Full Name" hint="You can log in with your email, username, NIM, or full name.">
+                    <Field icon={User} label="Full Name">
                       <input
                         type="text"
                         required
+                        minLength={3}
                         className={inputClass}
-                        placeholder="Enter email, username, or full name"
-                        value={identifier}
-                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="Enter your full name"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
                       />
                     </Field>
                   </motion.div>
 
-                  <motion.div {...fadeUp(0.3)}>
-                    <Field icon={KeyRound} label="Password">
+                  <motion.div {...fadeUp(0.3)} className="grid grid-cols-2 gap-4">
+                    <Field icon={Hash} label="NIM">
+                      <input
+                        type="text"
+                        required
+                        minLength={5}
+                        className={inputClass}
+                        placeholder="Student ID"
+                        value={nim}
+                        onChange={(e) => setNim(e.target.value)}
+                      />
+                    </Field>
+
+                    <Field icon={AtSign} label="Username">
+                      <input
+                        type="text"
+                        required
+                        minLength={3}
+                        className={inputClass}
+                        placeholder="Choose username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                      />
+                    </Field>
+                  </motion.div>
+
+                  <motion.div {...fadeUp(0.4)}>
+                    <Field icon={Mail} label="Email (Unram)" hint="Use your university email if possible.">
+                      <input
+                        type="email"
+                        required
+                        className={inputClass}
+                        placeholder="example@unram.ac.id"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </Field>
+                  </motion.div>
+
+                  <motion.div {...fadeUp(0.5)}>
+                    <Field icon={KeyRound} label="Password" hint="Minimum 6 characters.">
                       <div className="relative">
                         <input
                           type={showPassword ? "text" : "password"}
                           required
+                          minLength={6}
                           className={`${inputClass} pr-11`}
-                          placeholder="Enter your password"
+                          placeholder="Create a password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                         />
@@ -344,21 +376,18 @@ export default function LoginPage() {
                   </motion.div>
 
                   {/* Submit */}
-                  <motion.div {...fadeUp(0.4)} className="pt-2">
+                  <motion.div {...fadeUp(0.6)} className="pt-2">
                     <motion.button
                       type="submit"
-                      disabled={isLoading}
-                      whileHover={!isLoading ? { scale: 1.015, y: -1 } : {}}
-                      whileTap={!isLoading ? { scale: 0.98 } : {}}
-                      className={`w-full py-4 rounded-[14px] font-bold text-white text-[15px] flex items-center justify-center gap-2 relative overflow-hidden transition-all shadow-[0_8px_20px_-8px_rgba(139,92,246,0.6)] hover:shadow-[0_12px_24px_-8px_rgba(139,92,246,0.8)] ${isLoading ? 'opacity-80 cursor-not-allowed' : ''}`}
+                      disabled={isSubmitting}
+                      whileHover={!isSubmitting ? { scale: 1.015, y: -1 } : {}}
+                      whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                      className={`w-full py-4 rounded-[14px] font-bold text-white text-[15px] flex items-center justify-center gap-2 relative overflow-hidden transition-all shadow-[0_8px_20px_-8px_rgba(139,92,246,0.6)] hover:shadow-[0_12px_24px_-8px_rgba(139,92,246,0.8)] ${isSubmitting ? 'opacity-80 cursor-not-allowed' : ''}`}
                       style={{
                         background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
                       }}
                     >
-                      {/* Inner highlight */}
                       <div className="absolute inset-0 rounded-[14px] border border-white/20 pointer-events-none" />
-
-                      {/* Shine sweep */}
                       <motion.div
                         className="absolute inset-0"
                         style={{ background: "linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.2) 50%, transparent 65%)" }}
@@ -366,14 +395,14 @@ export default function LoginPage() {
                         transition={{ duration: 3.5, repeat: Infinity, ease: "linear", repeatDelay: 1.5 }}
                       />
                       <span className="relative z-10 flex items-center gap-2 tracking-wide">
-                        {isLoading ? (
+                        {isSubmitting ? (
                           <>
                             <div className="w-4 h-4 rounded-full border-[2.5px] border-white/30 border-t-white animate-spin" />
-                            Signing In...
+                            Creating Account...
                           </>
                         ) : (
                           <>
-                            Sign In <ArrowRight className="w-4.5 h-4.5" />
+                            Create Account <ArrowRight className="w-4.5 h-4.5" />
                           </>
                         )}
                       </span>
@@ -391,14 +420,14 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Below card — Sign Up link */}
-            <motion.div {...fadeUp(0.7)} className="text-center mt-6">
+            {/* Below card — Login link */}
+            <motion.div {...fadeUp(0.8)} className="text-center mt-6">
               <Link
-                to="/signup"
+                to="/login"
                 className="inline-flex items-center gap-2 text-[13px] text-white/50 hover:text-white/80 font-medium transition-colors duration-300"
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                Don't have an account? <span className="text-violet-400 hover:text-violet-300 font-bold">Sign up</span>
+                <LogIn className="w-3.5 h-3.5" />
+                Already have an account? <span className="text-violet-400 hover:text-violet-300 font-bold">Log in</span>
               </Link>
             </motion.div>
 
@@ -408,7 +437,6 @@ export default function LoginPage() {
             </motion.p>
           </motion.div>
         </div>
-        {/* ── End main layout row ── */}
       </div>
     </div>
   );

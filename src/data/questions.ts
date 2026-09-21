@@ -1,6 +1,7 @@
 import { Question, TestData } from '@/types/toefl';
 import { RawQuestion } from './question-types';
 import { getTestById } from './test-registry';
+import { supabase } from '@/lib/supabase';
 
 // Default fallback imports for backward compatibility
 import { section1Questions as defaultS1 } from './section1-questions';
@@ -17,10 +18,17 @@ function shuffle<T>(array: T[]): T[] {
   return arr;
 }
 
-function processOptions(options: string[], correctIndex: number) {
-  return options.map((opt, idx) => ({
+function resolveKeyIndex(key: number | string): number {
+  if (typeof key === 'number') return key;
+  const letterMap: Record<string, number> = { 'A': 0, 'B': 1, 'C': 2, 'D': 3 };
+  return letterMap[key.toUpperCase()] ?? 0;
+}
+
+function processOptions(options: string[], correctIndex: number | string) {
+  const idx = resolveKeyIndex(correctIndex);
+  return options.map((opt, i) => ({
     text: opt,
-    isCorrect: idx === correctIndex
+    isCorrect: i === idx
   }));
 }
 
@@ -92,6 +100,76 @@ export function initializeTestData(testId: string = 'practice-test-1'): { testDa
     audioFile,
   };
 }
+
+export async function fetchTestDataFromSupabase(testId: string = 'practice-test-1'): Promise<{ testData: TestData; audioFile: string }> {
+  try {
+    if (!supabase) throw new Error('Supabase client not initialized');
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .order('section_type')
+      .order('question_number');
+    
+    if (error || !data || data.length === 0) {
+      console.warn('Failed to fetch questions from Supabase or empty. Falling back to local data.', error);
+      return initializeTestData(testId);
+    }
+
+    const s1Questions: Question[] = [];
+    const s2Questions: Question[] = [];
+    const s3Questions: Question[] = [];
+
+    data.forEach(q => {
+      const options = [q.option_a, q.option_b, q.option_c, q.option_d];
+      const key = ['A', 'B', 'C', 'D'].indexOf(q.correct_answer);
+      
+      const question: Question = {
+        text: q.question_text,
+        options,
+        key: key >= 0 ? key : 0,
+        explanation: q.explanation,
+        shuffledOptions: processOptions(options, key >= 0 ? key : 0)
+      };
+
+      if (q.section_type === 'listening') {
+        s1Questions.push(question);
+      } else if (q.section_type === 'structure') {
+        s2Questions.push(question);
+      } else if (q.section_type === 'reading') {
+        question.passageText = q.passage_text;
+        s3Questions.push(question);
+      }
+    });
+
+    const testConfig = getTestById(testId);
+    const audioFile = testConfig?.audioFile ?? '/audio/audio_doang_part_B.mp3';
+
+    return {
+      testData: {
+        section1: {
+          name: 'Listening Comprehension',
+          duration: 35,
+          questions: s1Questions
+        },
+        section2: {
+          name: 'Structure & Written Expression',
+          duration: 25,
+          questions: s2Questions
+        },
+        section3: {
+          name: 'EPT Reading Comprehension',
+          duration: 55,
+          questions: s3Questions
+        }
+      },
+      audioFile,
+    };
+  } catch (err) {
+    console.warn('Error fetching test data from Supabase. Falling back to local data.', err);
+    return initializeTestData(testId);
+  }
+}
+
 
 export const SECTION_NAMES: Record<string, string> = {
   section1: 'Listening Comprehension',

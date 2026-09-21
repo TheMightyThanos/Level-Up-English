@@ -1,26 +1,355 @@
 import { useTest } from '@/context/TestContext';
 import { SectionKey } from '@/types/toefl';
-import { SECTION_NAMES, INSTRUCTIONS } from '@/data/questions';
+import { SECTION_NAMES, INSTRUCTIONS, initializeTestData } from '@/data/questions';
 import TestNavbar from '@/components/test/TestNavbar';
 import QuestionPanel from '@/components/test/QuestionPanel';
 import ReadingPanel from '@/components/test/ReadingPanel';
 import QuestionMap from '@/components/test/QuestionMap';
 import SectionCountdown from '@/components/test/SectionCountdown';
 import SectionConfirmDialog from '@/components/test/SectionConfirmDialog';
-import AudioPlayer from '@/components/test/AudioPlayer';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
+import { AlertCircle, BookOpen, RefreshCw, ArrowLeft } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { AnimatePresence, motion } from 'framer-motion';
+import { supabase } from '@/lib/supabase';
+import { resolveCorrectAnswer, sanitizeOptionText, extractReadingReference, cleanQuestionSentence } from '@/data/scoring';
+
+// Helper for shuffling options
+const shuffle = (array: any[]) => {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+const processOptions = (options: string[], rawKey: any) => {
+  const resolved = resolveCorrectAnswer(options, rawKey);
+  const mapped = options.map((opt, idx) => {
+    let isCorrect = false;
+    if (resolved.index >= 0) {
+      isCorrect = idx === resolved.index;
+    } else if (resolved.text) {
+      isCorrect = opt.trim().toLowerCase() === resolved.text.trim().toLowerCase();
+    }
+    return { text: opt, isCorrect };
+  });
+  return shuffle(mapped);
+};
 
 export default function TestPage() {
   const { state, dispatch } = useTest();
+  const params = useParams<{ packageId?: string; id?: string }>();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
   const [showMap, setShowMap] = useState(false);
   // Skip countdown animation when resuming a restored session
   const [showCountdown, setShowCountdown] = useState(!state.isRestored);
   const [showConfirm, setShowConfirm] = useState(false);
   const [mobileView, setMobileView] = useState<'passage' | 'questions'>('passage');
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(!state.testData);
+  const [error, setError] = useState<string | null>(null);
+  const [queriedPackageId, setQueriedPackageId] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const lastValidTime = useRef<number>(0);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+  // 1. Resolve raw incoming package ID from all potential sources
+  const rawCandidate =
+    params.packageId ||
+    params.id ||
+    (location.state as any)?.packageId ||
+    (location.state as any)?.preselectedSet ||
+    (location.state as any)?.selectedTestId ||
+    (location.state as any)?.id ||
+    (location.state as any)?.exam_package_id ||
+    (typeof location.state === 'string' ? location.state : undefined) ||
+    searchParams.get('packageId') ||
+    searchParams.get('package_id') ||
+    searchParams.get('id') ||
+    searchParams.get('preselectedSet') ||
+    state.selectedTestId;
+
+  // Extract string ID properly if passed as an object or other type
+  let resolvedPackageId = '';
+  if (typeof rawCandidate === 'string') {
+    resolvedPackageId = rawCandidate;
+  } else if (rawCandidate && typeof rawCandidate === 'object') {
+    resolvedPackageId =
+      (rawCandidate as any).id ||
+      (rawCandidate as any).packageId ||
+      (rawCandidate as any).preselectedSet ||
+      (rawCandidate as any).selectedTestId ||
+      (rawCandidate as any).exam_package_id ||
+      '';
+  } else if (rawCandidate) {
+    resolvedPackageId = String(rawCandidate);
+  }
+
+  resolvedPackageId = (resolvedPackageId || '').trim();
+  const packageId = resolvedPackageId;
+
+  // Comprehensive ID check for the local 50-item reading mock (available to all hooks and render)
+  const isMockPackage = Boolean(
+    packageId === 'mock-skripsi' ||
+    packageId === 'reading-only' ||
+    packageId === 'reading-section-only' ||
+    packageId === 'practice-test-1' ||
+    packageId === 'default'
+  );
+
+  // 1. Log incoming packageId clearly
+  console.log('Active Package ID:', packageId, 'isMockPackage:', isMockPackage);
+
+  // Defensively resolve active section and safe index at the top so ALL hooks have access
+  let activeSectionKey: SectionKey = state.currentSection || 'section1';
+  let currentSectionData = state.testData?.[activeSectionKey];
+
+  if ((!currentSectionData?.questions || currentSectionData.questions.length === 0) && state.testData) {
+    const fallbackSection = (['section3', 'section1', 'section2'] as SectionKey[]).find(
+      (sec) => state.testData?.[sec]?.questions && state.testData[sec].questions.length > 0
+    );
+    if (fallbackSection) {
+      activeSectionKey = fallbackSection;
+      currentSectionData = state.testData[fallbackSection];
+    }
+  }
+
+  const safeQIndex =
+    currentSectionData?.questions?.length &&
+    state.currentQIndex >= 0 &&
+    state.currentQIndex < currentSectionData.questions.length
+      ? state.currentQIndex
+      : 0;
+
+  const currentQuestion = currentSectionData?.questions?.[safeQIndex];
+  const totalQuestions = currentSectionData?.questions?.length || 0;
+
+  // Mount and state diagnostic logger (guaranteed to run on every render before any returns)
+  useEffect(() => {
+    console.log('[TestEngine Mount Guard]', {
+      mode: state.mode,
+      packageId,
+      isMockPackage,
+      currentSection: activeSectionKey,
+      questionsCount: totalQuestions,
+      currentQuestionIndex: safeQIndex,
+      timeLeft: state.timeLeft,
+      targetEndTime: state.targetEndTime,
+      isTestSubmitted: state.isTestSubmitted,
+    });
+  }, [state.mode, packageId, isMockPackage, activeSectionKey, totalQuestions, safeQIndex, state.timeLeft, state.targetEndTime, state.isTestSubmitted]);
+
+  // Sync mode from navigation state if provided
+  useEffect(() => {
+    const passedMode = (location.state as any)?.mode;
+    if (passedMode && passedMode !== state.mode && (passedMode === 'exam' || passedMode === 'study')) {
+      dispatch({ type: 'SET_MODE', payload: passedMode });
+    }
+  }, [location.state, state.mode, dispatch]);
+
+  // Prevent any outer page/window scrollbar while in TestPage
+  useEffect(() => {
+    const origOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = origOverflow;
+    };
+  }, []);
+
+  // Auto-sync section if mismatch detected (e.g. initial state section1 with 0 questions)
+  useEffect(() => {
+    if (state.testData && activeSectionKey && state.currentSection !== activeSectionKey) {
+      dispatch({ type: 'SET_SECTION', payload: activeSectionKey });
+      dispatch({ type: 'SET_QUESTION_INDEX', payload: safeQIndex });
+    }
+  }, [state.testData, activeSectionKey, state.currentSection, safeQIndex, dispatch]);
+
+  const handlePlayAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.play().then(() => setIsPlayingAudio(true)).catch(e => console.error(e));
+    }
+  }, []);
+
+  // Auto-play audio when section1 starts and countdown finishes
+  useEffect(() => {
+    if (
+      activeSectionKey === 'section1' &&
+      !showCountdown &&
+      !isLoadingData &&
+      state.testData &&
+      state.audioFile &&
+      audioRef.current &&
+      !isPlayingAudio
+    ) {
+      const timer = setTimeout(() => {
+        audioRef.current?.play()
+          .then(() => setIsPlayingAudio(true))
+          .catch(e => console.warn('Auto-play blocked by browser:', e));
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSectionKey, showCountdown, isLoadingData, state.testData, state.audioFile, isPlayingAudio]);
+
+  // Fetch actual questions from Supabase or local mock
+  useEffect(() => {
+    // If testData is already populated for this exact package, skip refetching
+    if (state.testData && (state.selectedTestId === packageId || (isMockPackage && (state.selectedTestId === 'mock-skripsi' || state.selectedTestId === 'practice-test-1')))) {
+      if (isMockPackage && (!state.testData.section1?.questions?.length && state.currentSection !== 'section3')) {
+        dispatch({ type: 'SET_SECTION', payload: 'section3' });
+        dispatch({ type: 'SET_QUESTION_INDEX', payload: 0 });
+      }
+      setIsLoadingData(false);
+      return;
+    }
+
+    async function fetchQuestions() {
+      setIsLoadingData(true);
+      setError(null);
+
+      // Keep context selectedTestId in sync if valid
+      const targetTestId = packageId || 'mock-skripsi';
+      if (state.selectedTestId !== targetTestId) {
+        dispatch({ type: 'SET_SELECTED_TEST', payload: targetTestId });
+      }
+
+      // 3. Immediately load local 50-item reading mock without hitting Supabase for mock/reading/missing ID
+      if (isMockPackage) {
+        try {
+          console.log('Loading local 50-question mock array safely for package ID:', packageId);
+          const { testData, audioFile } = initializeTestData('practice-test-1');
+          dispatch({ type: 'SET_SELECTED_TEST', payload: targetTestId });
+          dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile } });
+          dispatch({ type: 'SET_SECTION', payload: 'section3' });
+          dispatch({ type: 'SET_QUESTION_INDEX', payload: 0 });
+          setIsLoadingData(false);
+          return;
+        } catch (mockErr: any) {
+          console.error('Error loading local mock array:', mockErr);
+          setError(`Failed to load local mock questions: ${mockErr?.message || String(mockErr)}`);
+          setIsLoadingData(false);
+          return;
+        }
+      }
+
+      // 3. For database packages, query Supabase with resolved string ID
+      try {
+        setQueriedPackageId(packageId);
+        console.log('Querying Supabase questions for package ID:', packageId);
+
+        let { data, error: dbError } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('exam_package_id', packageId)
+          .order('question_number', { ascending: true });
+
+        // Safeguard fallback: user might have data split or migrated between exam_package_id and package_id columns
+        const fallbackRes = await supabase
+          .from('questions')
+          .select('*')
+          .eq('package_id', packageId)
+          .order('question_number', { ascending: true });
+
+        const len1 = data ? data.length : 0;
+        const len2 = fallbackRes.data ? fallbackRes.data.length : 0;
+
+        // Use whichever column returned MORE questions
+        if (len2 > len1) {
+          data = fallbackRes.data;
+          dbError = fallbackRes.error;
+        }
+
+        console.log('Supabase questions query result for', packageId, ':', { count: data?.length, error: dbError });
+
+        if (dbError) throw dbError;
+
+        // 4. If empty array returned, log warning and display clear debug UI
+        if (!data || data.length === 0) {
+          console.warn('DB returned 0 questions for ID:', packageId);
+          setError(`DB returned 0 questions for package ID: "${packageId}"`);
+          setIsLoadingData(false);
+          return;
+        }
+
+        let audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Soal%20TEST%202.mp3'; // Fallback
+
+        const testData = {
+          section1: { name: "Listening Comprehension", duration: 35, questions: [] },
+          section2: { name: "Structure & Written Expression", duration: 25, questions: [] },
+          section3: { name: "Reading Comprehension", duration: 55, questions: [] },
+        };
+
+        data.forEach((q, idx) => {
+          // Robust fallback mapping for options regardless of database structure
+          const rawOptions = [
+            q.option_a || q.options?.[0] || '',
+            q.option_b || q.options?.[1] || '',
+            q.option_c || q.options?.[2] || '',
+            q.option_d || q.options?.[3] || ''
+          ].map((opt) => sanitizeOptionText(opt));
+
+          const rawKey =
+            q.correct_answer ??
+            q.answer ??
+            q.key ??
+            q.correct_option ??
+            q.answer_key ??
+            q.correct_choice;
+
+          const resolved = resolveCorrectAnswer(rawOptions, rawKey);
+          const correctText = resolved.text || (typeof rawKey === 'string' ? sanitizeOptionText(rawKey) : '');
+
+          const processedQ = {
+            text: cleanQuestionSentence(q.question_text || q.text || `Question ${q.question_number || idx + 1}`),
+            options: rawOptions,
+            key: resolved.index >= 0 ? resolved.index : (typeof q.key === 'number' ? q.key : 0),
+            correct_answer: correctText,
+            answer: correctText,
+            explanation: q.explanation,
+            skill: q.skill,
+            sub_skill: q.sub_skill,
+            cognitive_level: q.cognitive_level,
+            longman_skill: q.longman_skill,
+            passageTitle: q.passage_title,
+            passageText: q.passage_text,
+            passageId: q.passage_id,
+            shuffledOptions: processOptions(rawOptions, rawKey)
+          };
+
+          const type = (q.section_type || '').toLowerCase().trim();
+          const qNum = Number(q.question_number) || (idx + 1);
+
+          if (type === 'listening' || (!type && qNum <= 50)) {
+            if (q.audio_url) audioFile = q.audio_url;
+            testData.section1.questions.push(processedQ as any);
+          } else if (type === 'structure' || (!type && qNum > 50 && qNum <= 90)) {
+            testData.section2.questions.push(processedQ as any);
+          } else if (type === 'reading' || (!type && qNum > 90)) {
+            testData.section3.questions.push(processedQ as any);
+          } else {
+            testData.section3.questions.push(processedQ as any);
+          }
+        });
+
+        dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile } });
+      } catch (err: any) {
+        console.error('Data fetch error:', err);
+        setError(err.message || 'Failed to fetch test data.');
+      } finally {
+        setIsLoadingData(false);
+      }
+    }
+
+    fetchQuestions();
+  }, [packageId, state.testData, state.selectedTestId, dispatch, retryCount]);
 
   // Auto fullscreen on mount
   useEffect(() => {
@@ -103,19 +432,26 @@ export default function TestPage() {
   // Set the absolute target end time when the countdown finishes (fresh sessions only).
   // Restored sessions already have targetEndTime set from localStorage.
   useEffect(() => {
-    if (state.mode === 'exam' && !state.isTestSubmitted && !showCountdown) {
+    if (state.mode === 'exam' && !state.isTestSubmitted && !showCountdown && state.testData && !isLoadingData) {
       if (state.targetEndTime === null) {
-        dispatch({ type: 'SET_TARGET_END_TIME', payload: Date.now() + state.timeLeft * 1000 });
+        const isReadingOnly = !state.testData?.section1?.questions?.length && !state.testData?.section2?.questions?.length;
+        const currentSec = activeSectionKey || state.currentSection || (isReadingOnly ? 'section3' : 'section1');
+        const durationMin = state.testData?.[currentSec]?.duration || (isReadingOnly ? 55 : 35);
+        const validTimeSec = state.timeLeft > 0 ? state.timeLeft : (durationMin > 0 ? durationMin * 60 : 55 * 60);
+
+        if (state.timeLeft <= 0) {
+          dispatch({ type: 'SET_TIME_LEFT', payload: validTimeSec });
+        }
+        dispatch({ type: 'SET_TARGET_END_TIME', payload: Date.now() + validTimeSec * 1000 });
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.mode, state.isTestSubmitted, showCountdown]);
+  }, [state.mode, state.isTestSubmitted, showCountdown, state.testData, isLoadingData, state.targetEndTime, state.timeLeft, activeSectionKey, state.currentSection, dispatch]);
 
-  // Timer logic for exam mode (only when countdown done)
+  // Timer logic for exam mode (only when countdown done and targetEndTime armed)
   useEffect(() => {
-    if (state.mode !== 'exam' || state.isTestSubmitted || showCountdown) return;
+    if (state.mode !== 'exam' || state.isTestSubmitted || showCountdown || isLoadingData || !state.testData) return;
 
-    // Core tick — runs every second (may be throttled by browser in bg tabs)
+    // Core tick — runs every second
     timerRef.current = setInterval(() => {
       if (state.targetEndTime !== null) {
         const remaining = Math.max(0, Math.ceil((state.targetEndTime - Date.now()) / 1000));
@@ -123,9 +459,6 @@ export default function TestPage() {
       }
     }, 1000);
 
-    // Immediately sync timer when tab/window regains focus so the user never
-    // sees a stale value.  Browsers throttle setInterval to ~1×/min in
-    // background tabs — this compensates for that.
     const syncTimer = () => {
       if (state.targetEndTime !== null) {
         const remaining = Math.max(0, Math.ceil((state.targetEndTime - Date.now()) / 1000));
@@ -133,8 +466,6 @@ export default function TestPage() {
       }
     };
 
-    // visibilitychange  → covers Chrome tab switches
-    // focus             → covers Alt-Tab / window switching
     const handleVisibility = () => { if (!document.hidden) syncTimer(); };
     const handleFocus = () => syncTimer();
 
@@ -146,26 +477,54 @@ export default function TestPage() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.mode, state.isTestSubmitted, showCountdown, state.targetEndTime, dispatch]);
-
-  // Handle time up
-  useEffect(() => {
-    if (state.mode !== 'exam' || state.timeLeft > 0) return;
-    proceedToNextSection();
-  }, [state.timeLeft]);
+  }, [state.mode, state.isTestSubmitted, showCountdown, isLoadingData, state.testData, state.targetEndTime, dispatch]);
 
   const proceedToNextSection = useCallback(() => {
-    if (state.currentSection === 'section1') {
+    if (!state.testData || isLoadingData || state.isTestSubmitted) return;
+
+    const isReadingOnly = !state.testData?.section1?.questions?.length && !state.testData?.section2?.questions?.length;
+    const currentSec = activeSectionKey || state.currentSection;
+
+    if (isReadingOnly || currentSec === 'section3') {
+      dispatch({ type: 'SUBMIT_TEST' });
+      return;
+    }
+    if (currentSec === 'section1') {
       dispatch({ type: 'SET_SECTION', payload: 'section2' });
       setShowCountdown(true);
-    } else if (state.currentSection === 'section2') {
+    } else if (currentSec === 'section2') {
       dispatch({ type: 'SET_SECTION', payload: 'section3' });
       setShowCountdown(true);
     } else {
       dispatch({ type: 'SUBMIT_TEST' });
     }
-  }, [state.currentSection, dispatch]);
+  }, [state.testData, isLoadingData, state.isTestSubmitted, activeSectionKey, state.currentSection, dispatch]);
+
+  // Navigate to results when test is submitted
+  useEffect(() => {
+    if (state.isTestSubmitted && state.view === 'results') {
+      navigate('/', { replace: true });
+    }
+  }, [state.isTestSubmitted, state.view, navigate]);
+
+  // Handle time up — ONLY when examination mode is active, testData is loaded, not in countdown, targetEndTime is armed, and time has genuinely expired
+  useEffect(() => {
+    if (
+      state.mode !== 'exam' ||
+      state.isTestSubmitted ||
+      showCountdown ||
+      isLoadingData ||
+      !state.testData ||
+      state.targetEndTime === null
+    ) {
+      return;
+    }
+
+    if (state.timeLeft <= 0 && Date.now() >= state.targetEndTime) {
+      console.log('[TestEngine] Time genuinely expired for section:', activeSectionKey || state.currentSection);
+      proceedToNextSection();
+    }
+  }, [state.mode, state.isTestSubmitted, showCountdown, isLoadingData, state.testData, state.targetEndTime, state.timeLeft, activeSectionKey, state.currentSection, proceedToNextSection]);
 
   const handleSectionChange = useCallback((section: SectionKey) => {
     if (state.mode !== 'study') return;
@@ -180,27 +539,30 @@ export default function TestPage() {
   }, []);
 
   const handleSelectAnswer = useCallback((answer: string) => {
+    const currentSec = activeSectionKey || state.currentSection;
     dispatch({
       type: 'SET_ANSWER',
-      payload: { section: state.currentSection, index: state.currentQIndex, answer }
+      payload: { section: currentSec, index: safeQIndex, answer }
     });
-  }, [state.currentSection, state.currentQIndex, dispatch]);
+  }, [activeSectionKey, state.currentSection, safeQIndex, dispatch]);
 
   const handleChangeQuestion = useCallback((delta: number) => {
     if (!state.testData) return;
-    const total = state.testData[state.currentSection].questions.length;
-    const newIdx = state.currentQIndex + delta;
+    const currentSec = activeSectionKey || state.currentSection;
+    const total = state.testData[currentSec]?.questions?.length || 0;
+    const newIdx = safeQIndex + delta;
     if (newIdx >= total) {
       handleNextSection();
       return;
     }
     if (newIdx < 0) return;
     dispatch({ type: 'SET_QUESTION_INDEX', payload: newIdx });
-  }, [state.testData, state.currentSection, state.currentQIndex, dispatch, handleNextSection]);
+  }, [state.testData, activeSectionKey, state.currentSection, safeQIndex, dispatch, handleNextSection]);
 
   const handleToggleFlag = useCallback(() => {
-    dispatch({ type: 'TOGGLE_FLAG', payload: { section: state.currentSection, index: state.currentQIndex } });
-  }, [state.currentSection, state.currentQIndex, dispatch]);
+    const currentSec = activeSectionKey || state.currentSection;
+    dispatch({ type: 'TOGGLE_FLAG', payload: { section: currentSec, index: safeQIndex } });
+  }, [activeSectionKey, state.currentSection, safeQIndex, dispatch]);
 
   // Keyboard shortcuts for navigation and answering
   useEffect(() => {
@@ -220,9 +582,10 @@ export default function TestPage() {
         const key = e.key.toUpperCase();
         if (['A', 'B', 'C', 'D'].includes(key)) {
           const index = key.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
-          const currentQuestionData = state.testData![state.currentSection].questions[state.currentQIndex];
-          if (currentQuestionData && currentQuestionData.shuffledOptions[index]) {
-            const isStudyAnswered = state.mode === 'study' && state.userAnswers[state.currentSection][state.currentQIndex] !== undefined;
+          const currentSec = activeSectionKey || state.currentSection;
+          const currentQuestionData = state.testData?.[currentSec]?.questions?.[safeQIndex];
+          if (currentQuestionData && currentQuestionData.shuffledOptions?.[index]) {
+            const isStudyAnswered = state.mode === 'study' && state.userAnswers?.[currentSec]?.[safeQIndex] !== undefined;
             if (!isStudyAnswered) {
               handleSelectAnswer(currentQuestionData.shuffledOptions[index].text);
             }
@@ -233,45 +596,171 @@ export default function TestPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.testData, state.currentSection, state.currentQIndex, state.mode, state.userAnswers, handleChangeQuestion, handleSelectAnswer]);
+  }, [state.testData, activeSectionKey, state.currentSection, safeQIndex, state.mode, state.userAnswers, handleChangeQuestion, handleSelectAnswer]);
 
-  if (!state.testData) return null;
+  if (isLoadingData || !state.testData) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#030014] text-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          <div className="text-white/70 text-sm">Loading test questions...</div>
+        </div>
+      </div>
+    );
+  }
 
-  const currentQuestion = state.testData[state.currentSection].questions[state.currentQIndex];
-  const totalQuestions = state.testData[state.currentSection].questions.length;
-  const userAnswer = state.userAnswers[state.currentSection][state.currentQIndex];
-  const isFlagged = !!state.flags[state.currentSection][state.currentQIndex];
-  const isReadingSection = state.currentSection === 'section3';
-  const answeredCount = Object.keys(state.userAnswers[state.currentSection]).length;
-  const flaggedCount = Object.keys(state.flags[state.currentSection]).length;
-  const unansweredCount = totalQuestions - answeredCount;
-  const isLastSection = state.currentSection === 'section3';
+  // 4. Debug UI when empty array is returned or error occurred
+  if (error || (!state.testData && !isLoadingData)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#030014] text-white p-6 relative overflow-hidden">
+        {/* Glow ambient background */}
+        <div className="absolute w-96 h-96 bg-violet-600/15 rounded-full blur-3xl pointer-events-none -top-20 -left-20" />
+        <div className="absolute w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none -bottom-20 -right-20" />
 
-  // Auto-extract the quoted reference word/phrase from the question text
-  // e.g. 'In line 3, the word "derived" is closest in meaning to' -> 'derived'
-  const passageHighlight = (() => {
-    const t = currentQuestion?.text || '';
-    const m = t.match(/["“]([^"”]+)["”]/);
-    return m ? m[1] : undefined;
-  })();
+        <div className="max-w-xl w-full bg-white/[0.04] border border-white/[0.1] rounded-2xl p-6 sm:p-8 backdrop-blur-xl shadow-2xl relative z-10 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-amber-500/10">
+            <AlertCircle className="w-7 h-7" />
+          </div>
 
-  // Auto-extract the referenced line number from the question text
-  // e.g. 'In line 17, the word "eras" ...' -> 17
-  const passageHighlightLine = (() => {
-    const t = currentQuestion?.text || '';
-    const m = t.match(/\bline\s+(\d+)/i);
-    return m ? parseInt(m[1], 10) : undefined;
-  })();
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white mb-2">
+            No Questions Found
+          </h2>
+
+          <p className="text-white/60 text-sm leading-relaxed mb-6">
+            The test engine could not find any questions for the requested package. Please verify the package ID in Supabase or load the local fallback mock test.
+          </p>
+
+          {/* Debug Box */}
+          <div className="bg-black/40 border border-white/10 rounded-xl p-4 mb-6 text-left font-mono text-xs space-y-2">
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <span className="text-white/40">Active Package ID:</span>
+              <span className="text-amber-300 font-semibold select-all break-all ml-2">
+                {packageId || queriedPackageId || '(none provided)'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+              <span className="text-white/40">Queried Table / Column:</span>
+              <span className="text-indigo-300 ml-2">questions.exam_package_id</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-white/40">Questions Returned:</span>
+              <span className="text-rose-400 font-bold ml-2">0 items</span>
+            </div>
+            {error && (
+              <div className="pt-2 border-t border-white/5 text-rose-300/80 text-[11px] leading-tight">
+                Detail: {error}
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => {
+                try {
+                  const { testData, audioFile } = initializeTestData('practice-test-1');
+                  dispatch({ type: 'SET_SELECTED_TEST', payload: 'mock-skripsi' });
+                  dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile } });
+                  dispatch({ type: 'SET_SECTION', payload: 'section3' });
+                  dispatch({ type: 'SET_QUESTION_INDEX', payload: 0 });
+                  setError(null);
+                } catch (e: any) {
+                  setError(e.message || 'Failed to load fallback');
+                }
+              }}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-violet-600/20"
+            >
+              <BookOpen className="w-4 h-4" />
+              Load Mock Skripsi (50 Items)
+            </button>
+
+            <button
+              onClick={() => {
+                setError(null);
+                setIsLoadingData(true);
+                setRetryCount(c => c + 1);
+              }}
+              className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-semibold transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry Query
+            </button>
+
+            <button
+              onClick={() => {
+                dispatch({ type: 'RESET_TEST' });
+                navigate('/');
+              }}
+              className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-sm font-medium transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentQuestion) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#030014] text-white p-6">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-white/[0.04] border border-white/10 text-center space-y-4">
+          <p className="text-base font-semibold text-white/90">Question not found</p>
+          <p className="text-xs text-white/50">The test questions could not be loaded into the current view.</p>
+          <div className="flex gap-3 justify-center pt-2">
+            <button
+              onClick={() => {
+                const { testData, audioFile } = initializeTestData('practice-test-1');
+                dispatch({ type: 'SET_SELECTED_TEST', payload: 'mock-skripsi' });
+                dispatch({ type: 'SET_TEST_DATA', payload: { testData, audioFile } });
+                dispatch({ type: 'SET_SECTION', payload: 'section3' });
+                dispatch({ type: 'SET_QUESTION_INDEX', payload: 0 });
+              }}
+              className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition-colors shadow-lg shadow-violet-600/20"
+            >
+              Load Reading Questions (50 Items)
+            </button>
+            <button
+              onClick={() => {
+                dispatch({ type: 'RESET_TEST' });
+                navigate('/');
+              }}
+              className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors"
+            >
+              Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const userAnswer = state.userAnswers?.[activeSectionKey]?.[safeQIndex];
+  const isFlagged = Boolean(state.flags?.[activeSectionKey]?.[safeQIndex]);
+  const isReadingSection = activeSectionKey === 'section3';
+  const answeredCount = Object.keys(state.userAnswers?.[activeSectionKey] || {}).length;
+  const flaggedCount = Object.keys(state.flags?.[activeSectionKey] || {}).length;
+  const unansweredCount = Math.max(0, totalQuestions - answeredCount);
+  const isLastSection = activeSectionKey === 'section3';
+
+  // Auto-extract reference word/phrase and line number from question text
+  // Supports single/double quotes, unquoted terms, HTML tags, and line numbers
+  const readingRef = isReadingSection
+    ? extractReadingReference(currentQuestion?.text || '')
+    : {};
+  const passageHighlight = readingRef.word;
+  const passageHighlightLine = readingRef.line;
 
   // Get instruction
   let instruction = '';
-  const qNum = state.currentQIndex + 1;
-  if (state.currentSection === 'section1' && qNum === 1) instruction = INSTRUCTIONS.s1_intro + '<br><hr class="my-3 border-primary/20">' + INSTRUCTIONS.s1_partA;
-  else if (state.currentSection === 'section1' && qNum === 31) instruction = INSTRUCTIONS.s1_partB;
-  else if (state.currentSection === 'section1' && qNum === 39) instruction = INSTRUCTIONS.s1_partC;
-  else if (state.currentSection === 'section2' && qNum === 1) instruction = INSTRUCTIONS.s2_partA;
-  else if (state.currentSection === 'section2' && qNum === 16) instruction = INSTRUCTIONS.s2_partB;
-  else if (state.currentSection === 'section3' && qNum === 1) instruction = INSTRUCTIONS.s3_general;
+  const qNum = safeQIndex + 1;
+  if (activeSectionKey === 'section1' && qNum === 1) instruction = INSTRUCTIONS.s1_intro + '<br><hr class="my-3 border-primary/20">' + INSTRUCTIONS.s1_partA;
+  else if (activeSectionKey === 'section1' && qNum === 31) instruction = INSTRUCTIONS.s1_partB;
+  else if (activeSectionKey === 'section1' && qNum === 39) instruction = INSTRUCTIONS.s1_partC;
+  else if (activeSectionKey === 'section2' && qNum === 1) instruction = INSTRUCTIONS.s2_partA;
+  else if (activeSectionKey === 'section2' && qNum === 16) instruction = INSTRUCTIONS.s2_partB;
+  else if (activeSectionKey === 'section3' && qNum === 1) instruction = INSTRUCTIONS.s3_general;
 
   return (
     <div className={`${isDarkMode ? 'dark' : ''} bg-background flex flex-col ${isReadingSection ? 'h-screen overflow-hidden' : 'min-h-screen'} text-foreground transition-colors duration-300`}>
@@ -279,7 +768,7 @@ export default function TestPage() {
       <AnimatePresence>
         {showCountdown && (
           <SectionCountdown
-            sectionName={SECTION_NAMES[state.currentSection]}
+            sectionName={SECTION_NAMES[activeSectionKey] || 'Section'}
             onComplete={() => setShowCountdown(false)}
           />
         )}
@@ -288,7 +777,7 @@ export default function TestPage() {
       {/* Section Confirm Dialog */}
       {showConfirm && (
         <SectionConfirmDialog
-          sectionName={SECTION_NAMES[state.currentSection]}
+          sectionName={SECTION_NAMES[activeSectionKey] || 'Section'}
           unansweredCount={unansweredCount}
           flaggedCount={flaggedCount}
           totalQuestions={totalQuestions}
@@ -303,14 +792,14 @@ export default function TestPage() {
       )}
 
       <TestNavbar
-        sectionName={SECTION_NAMES[state.currentSection]}
+        sectionName={SECTION_NAMES[activeSectionKey] || 'Section'}
         timeLeft={state.timeLeft}
         mode={state.mode}
         userName={state.userData.name}
-        userNim={state.userData.email}
+        userNim={state.userData.nim}
         answeredCount={answeredCount}
         totalQuestions={totalQuestions}
-        currentSection={state.currentSection}
+        currentSection={activeSectionKey}
         onSectionChange={handleSectionChange}
         visitedSections={state.visitedSections}
         isDarkMode={isDarkMode}
@@ -318,6 +807,60 @@ export default function TestPage() {
       />
 
       <main className="flex-1 pt-12 sm:pt-16 flex flex-col overflow-hidden">
+        {activeSectionKey === 'section1' && state.audioFile && (
+          <div className="w-full bg-card/80 backdrop-blur border-b border-border p-3 z-20 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <span className="text-sm font-semibold text-primary/80 hidden sm:inline-block">Listening Audio</span>
+            
+            {state.mode === 'study' ? (
+              <audio controls controlsList="nodownload" className="w-full max-w-lg h-10 outline-none" onContextMenu={(e) => e.preventDefault()}>
+                <source src={state.audioFile} type="audio/mpeg" />
+                Your browser does not support the audio element.
+              </audio>
+            ) : (
+              <div className="flex items-center gap-4 w-full max-w-lg bg-muted/50 rounded-lg p-2 border border-border/50">
+                <audio 
+                  ref={audioRef}
+                  onEnded={() => setIsPlayingAudio(false)}
+                  onPlay={() => setIsPlayingAudio(true)}
+                  onPause={(e) => {
+                    if (state.mode === 'exam' && e.currentTarget.currentTime > 0 && !e.currentTarget.ended) {
+                      e.currentTarget.play();
+                    }
+                  }}
+                  onSeeking={(e) => {
+                    if (state.mode === 'exam') {
+                      e.currentTarget.currentTime = lastValidTime.current;
+                    }
+                  }}
+                  onTimeUpdate={(e) => {
+                    if (state.mode === 'exam' && isPlayingAudio) {
+                      lastValidTime.current = e.currentTarget.currentTime;
+                    }
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                >
+                  <source src={state.audioFile} type="audio/mpeg" />
+                </audio>
+                
+                <div className="flex items-center gap-3 flex-1">
+                  {isPlayingAudio ? (
+                    <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md font-bold text-sm flex-shrink-0 animate-pulse flex items-center gap-2">
+                      <div className="w-2 h-2 bg-destructive rounded-full animate-ping" />
+                      Playing... (Cannot be paused)
+                    </div>
+                  ) : (
+                    <div className="bg-amber-500/10 text-amber-500 px-4 py-2 rounded-md font-bold text-sm flex-shrink-0 animate-pulse">
+                      Preparing Audio...
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground flex-1">
+                    Audio plays once per official EPT rules.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {/* Mobile/Tablet view toggle — only when a reading passage is present */}
         {isReadingSection && currentQuestion.passageText && (
           <div className="lg:hidden sticky top-12 sm:top-16 z-30 bg-card/95 backdrop-blur border-b border-border px-3 py-2 flex gap-2">
@@ -344,41 +887,31 @@ export default function TestPage() {
           </div>
         )}
 
-        {state.currentSection === 'section1' && state.audioFile && (
-          <div className="max-w-7xl mx-auto w-full px-4 mt-4 shrink-0">
-            <AudioPlayer 
-              src={state.audioFile} 
-              autoPlay={true} 
-              disableControls={state.mode === 'exam'} 
-            />
-          </div>
-        )}
-
         <motion.div
-          key={`${state.currentSection}-${state.currentQIndex}`}
+          key={`${activeSectionKey}-${safeQIndex}`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
           className={`flex-1 flex ${isReadingSection ? 'flex-col lg:flex-row overflow-hidden' : 'flex-col'} ${isReadingSection ? 'w-full' : 'max-w-7xl mx-auto w-full'}`}
         >
           {isReadingSection && currentQuestion.passageText && (
-            <div className={`${mobileView === 'passage' ? 'flex' : 'hidden'} lg:flex lg:w-1/2 min-h-0 flex-1 lg:flex-initial flex-col`}>
+            <div className={`${mobileView === 'passage' ? 'flex' : 'hidden'} lg:flex lg:w-1/2 min-h-0 flex-1 flex-col overflow-hidden`}>
               <ReadingPanel
                 title={currentQuestion.passageTitle || 'Reading Passage'}
                 text={currentQuestion.passageText}
                 highlight={passageHighlight}
                 highlightLine={passageHighlightLine}
-                pulseKey={`${state.currentSection}-${state.currentQIndex}-${userAnswer ?? ''}`}
+                pulseKey={`${activeSectionKey}-${safeQIndex}-${userAnswer ?? ''}`}
               />
             </div>
           )}
 
-          <div className={`${isReadingSection && currentQuestion.passageText ? (mobileView === 'questions' ? 'flex' : 'hidden') : 'flex'} lg:flex flex-1 min-h-0 flex-col`}>
+          <div className={`${isReadingSection && currentQuestion.passageText ? (mobileView === 'questions' ? 'flex' : 'hidden') : 'flex'} lg:flex flex-1 min-h-0 flex-col overflow-hidden`}>
             <QuestionPanel
               question={currentQuestion}
               questionNumber={qNum}
               totalQuestions={totalQuestions}
-              sectionName={SECTION_NAMES[state.currentSection]}
+              sectionName={SECTION_NAMES[activeSectionKey] || 'Section'}
               userAnswer={userAnswer}
               isFlagged={isFlagged}
               mode={state.mode}
@@ -396,9 +929,9 @@ export default function TestPage() {
       {showMap && (
         <QuestionMap
           totalQuestions={totalQuestions}
-          currentIndex={state.currentQIndex}
-          answers={state.userAnswers[state.currentSection]}
-          flags={state.flags[state.currentSection]}
+          currentIndex={safeQIndex}
+          answers={state.userAnswers?.[activeSectionKey] || {}}
+          flags={state.flags?.[activeSectionKey] || {}}
           onSelect={(idx) => {
             dispatch({ type: 'SET_QUESTION_INDEX', payload: idx });
             setShowMap(false);

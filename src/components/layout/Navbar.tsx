@@ -1,24 +1,37 @@
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTest } from "@/context/TestContext";
+import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
-import { Home, Info, UserRound, GraduationCap, BookOpen, HelpCircle, MessageSquare, TrendingUp } from "lucide-react";
+import { Home, Info, UserRound, GraduationCap, BookOpen, HelpCircle, MessageSquare } from "lucide-react";
 
 export function Navbar() {
   const location = useLocation();
   const { state } = useTest();
+  const [hasUserSession, setHasUserSession] = useState(false);
 
-  // Hide the navbar when the user is actively taking a test
-  if (location.pathname === "/" && state.view === "test") {
+  useEffect(() => {
+    if (supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setHasUserSession(Boolean(session));
+      });
+    }
+  }, []);
+
+  // Hide the navbar when the user is actively taking a test or on dashboard
+  if ((location.pathname === "/" && state.view === "test") || location.pathname.startsWith("/test") || location.pathname === "/dashboard") {
     return null;
   }
 
+  const homePath = hasUserSession ? "/dashboard" : "/";
+
   const links = [
-    { name: "Home", path: "/", icon: Home },
+    { name: "Home", path: homePath, icon: Home },
     { name: "About the App", path: "/about-app", icon: Info },
     { name: "Study Tips", path: "/study-tips", icon: BookOpen },
     { name: "FAQ", path: "/faq", icon: HelpCircle },
     { name: "Feedback", path: "/feedback", icon: MessageSquare },
-    { name: "Creator", path: "/about-researcher", icon: UserRound },
+    { name: "Researcher", path: "/about-researcher", icon: UserRound },
   ];
 
   return (
@@ -36,12 +49,12 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between">
 
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
+        <Link to={homePath} className="flex items-center gap-3 group flex-shrink-0">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center border border-violet-500/30 bg-violet-500/10 group-hover:bg-violet-500/20 transition-all duration-300 group-hover:border-violet-400/50">
-            <TrendingUp className="w-[18px] h-[18px] text-violet-300" />
+            <GraduationCap className="w-[18px] h-[18px] text-violet-300" />
           </div>
           <span className="font-bold text-white/90 tracking-wide text-sm hidden sm:block group-hover:text-white transition-colors">
-            Level-Up English!
+            EPT Reading Prep
           </span>
         </Link>
 

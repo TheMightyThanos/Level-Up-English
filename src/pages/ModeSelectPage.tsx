@@ -1,7 +1,9 @@
 import { useTest } from '@/context/TestContext';
 import { TestMode } from '@/types/toefl';
 import { motion } from 'framer-motion';
-import { Timer, BookOpen, Clock, Send, Infinity as InfinityIcon, Lightbulb, ShieldOff, ArrowLeft, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Timer, BookOpen, Clock, Send, Infinity as InfinityIcon, Lightbulb, ShieldOff, ArrowLeft, ArrowRight, CheckCircle2, Sparkles, Loader2 } from 'lucide-react';
+import { fetchTestDataFromSupabase } from '@/data/questions';
 
 /* ─── animation presets ─── */
 const fadeUp = (delay = 0) => ({
@@ -52,10 +54,20 @@ const modeConfigs = {
 
 export default function ModeSelectPage() {
   const { state, dispatch } = useTest();
+  const [loading, setLoading] = useState(false);
 
-  const handleSelectMode = (mode: TestMode) => {
+  const handleSelectMode = async (mode: TestMode) => {
     dispatch({ type: 'SET_MODE', payload: mode });
-    dispatch({ type: 'START_TEST' });
+    setLoading(true);
+    try {
+      const payload = await fetchTestDataFromSupabase(state.selectedTestId);
+      dispatch({ type: 'START_TEST', payload });
+    } catch (err) {
+      console.error(err);
+      dispatch({ type: 'START_TEST' }); // fallback
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -105,9 +117,9 @@ export default function ModeSelectPage() {
               <motion.div
                 key={mode}
                 {...fadeUp(0.4 + idx * 0.15)}
-                onClick={() => !isStudy && handleSelectMode(mode)}
+                onClick={() => (!isStudy && !loading) && handleSelectMode(mode)}
                 className={`group relative rounded-2xl sm:rounded-3xl p-6 sm:p-8 transition-all duration-300 overflow-hidden border border-white/10 bg-white/5 backdrop-blur-xl ${
-                  isStudy ? 'opacity-50 cursor-not-allowed' : `cursor-pointer hover:bg-white/10 ${cfg.borderHover} hover:shadow-2xl ${cfg.shadow}`
+                  isStudy ? 'opacity-50 cursor-not-allowed' : loading ? 'opacity-70 cursor-wait' : `cursor-pointer hover:bg-white/10 ${cfg.borderHover} hover:shadow-2xl ${cfg.shadow}`
                 }`}
               >
                 {/* Glow behind card */}
@@ -116,7 +128,7 @@ export default function ModeSelectPage() {
                 {/* Icon Header */}
                 <div className="flex items-start justify-between mb-5 sm:mb-8">
                   <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br ${cfg.gradient} flex items-center justify-center shadow-lg ${!isStudy && 'group-hover:scale-110'} transition-transform duration-300`}>
-                    <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    {loading && !isStudy ? <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-white animate-spin" /> : <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />}
                   </div>
                   {!isStudy ? (
                     <div className="hidden sm:flex w-10 h-10 rounded-full bg-white/5 items-center justify-center border border-white/10 group-hover:bg-white/10 transition-colors">

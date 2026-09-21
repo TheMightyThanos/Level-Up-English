@@ -70,7 +70,8 @@ type TestAction =
   | { type: 'SET_USER_DATA'; payload: UserData }
   | { type: 'SET_MODE'; payload: TestMode }
   | { type: 'SET_SELECTED_TEST'; payload: string }
-  | { type: 'START_TEST' }
+  | { type: 'START_TEST'; payload?: { testData: TestData; audioFile: string } }
+  | { type: 'SET_TEST_DATA'; payload: { testData: TestData; audioFile: string } }
   | { type: 'SET_SECTION'; payload: SectionKey }
   | { type: 'SET_QUESTION_INDEX'; payload: number }
   | { type: 'SET_ANSWER'; payload: { section: SectionKey; index: number; answer: string } }
@@ -79,6 +80,7 @@ type TestAction =
   | { type: 'SUBMIT_TEST' }
   | { type: 'INCREMENT_TAB_SWITCH' }
   | { type: 'RESET' }
+  | { type: 'RESET_TEST' }
   | { type: 'RESTORE_SESSION'; payload: PersistedExamState }
   | { type: 'RESTORE_LOGIN'; payload: PersistedLoginSession }
   | { type: 'SET_TARGET_END_TIME'; payload: number };
@@ -115,22 +117,52 @@ function testReducer(state: TestState, action: TestAction): TestState {
     case 'SET_SELECTED_TEST':
       return { ...state, selectedTestId: action.payload };
     case 'START_TEST': {
-      const { testData, audioFile } = initializeTestData(state.selectedTestId);
+      const { testData, audioFile } = action.payload || initializeTestData(state.selectedTestId);
       const now = Date.now();
-      const initialDuration = testData?.section1?.duration ?? 35; // 35 mins default
+      // Determine the first section that has questions
+      const firstSection: SectionKey = testData?.section1?.questions?.length ? 'section1'
+        : testData?.section2?.questions?.length ? 'section2'
+        : 'section3';
+      const initialDuration = testData?.[firstSection]?.duration ?? 35;
       return {
         ...state,
         testData,
         audioFile,
         view: 'test',
-        currentSection: 'section1',
+        currentSection: firstSection,
         currentQIndex: 0,
         userAnswers: { section1: {}, section2: {}, section3: {} },
         flags: { section1: {}, section2: {}, section3: {} },
         isTestSubmitted: false,
         results: null,
         timeLeft: initialDuration * 60,
-        visitedSections: { section1: true, section2: false, section3: false },
+        visitedSections: { section1: firstSection === 'section1', section2: firstSection === 'section2', section3: firstSection === 'section3' },
+        startedAt: now,
+        targetEndTime: now + initialDuration * 60 * 1000,
+        isRestored: false,
+      };
+    }
+    case 'SET_TEST_DATA': {
+      const { testData, audioFile } = action.payload;
+      const now = Date.now();
+      // Determine the first section that has questions
+      const firstSection: SectionKey = testData?.section1?.questions?.length ? 'section1'
+        : testData?.section2?.questions?.length ? 'section2'
+        : 'section3';
+      const initialDuration = testData?.[firstSection]?.duration ?? 35;
+      return {
+        ...state,
+        testData,
+        audioFile,
+        view: 'test',
+        currentSection: firstSection,
+        currentQIndex: 0,
+        userAnswers: { section1: {}, section2: {}, section3: {} },
+        flags: { section1: {}, section2: {}, section3: {} },
+        isTestSubmitted: false,
+        results: null,
+        timeLeft: initialDuration * 60,
+        visitedSections: { section1: firstSection === 'section1', section2: firstSection === 'section2', section3: firstSection === 'section3' },
         startedAt: now,
         targetEndTime: now + initialDuration * 60 * 1000,
         isRestored: false,
@@ -192,6 +224,25 @@ function testReducer(state: TestState, action: TestAction): TestState {
       clearExamState();
       clearLoginSession();
       return initialState;
+    case 'RESET_TEST':
+      // Reset test state but keep user data and auth
+      clearExamState();
+      return {
+        ...state,
+        testData: null,
+        currentSection: 'section1' as SectionKey,
+        currentQIndex: 0,
+        userAnswers: { section1: {}, section2: {}, section3: {} },
+        flags: { section1: {}, section2: {}, section3: {} },
+        timeLeft: 0,
+        isTestSubmitted: false,
+        results: null,
+        tabSwitchCount: 0,
+        visitedSections: { section1: true, section2: false, section3: false },
+        startedAt: null,
+        targetEndTime: null,
+        isRestored: false,
+      };
     case 'RESTORE_SESSION': {
       const saved = action.payload;
       const { testData, audioFile } = initializeTestData(saved.selectedTestId);
