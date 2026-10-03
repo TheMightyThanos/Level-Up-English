@@ -248,19 +248,21 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative" style={{ background: "#030014" }}>
-      {/* ── Background orbs ── */}
-      <Orb className="w-[700px] h-[700px] -top-[300px] -right-[200px] bg-violet-600/30" delay={0} />
-      <Orb className="w-[500px] h-[500px] -bottom-[200px] -left-[100px] bg-indigo-500/25" delay={3} />
-
-      {/* Grid overlay */}
-      <div
-        className="absolute inset-0 opacity-[0.025] pointer-events-none"
-        style={{
-          backgroundImage: "linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
-        }}
-      />
+    <div className="min-h-screen flex flex-col relative overflow-x-hidden" style={{ background: "#030014" }}>
+      {/* ── Background Wrapper ── */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <Orb className="w-[700px] h-[700px] -top-[300px] -right-[200px] bg-violet-600/30" delay={0} />
+        <Orb className="w-[500px] h-[500px] -bottom-[200px] -left-[100px] bg-indigo-500/25" delay={3} />
+        
+        {/* Grid overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.025]"
+          style={{
+            backgroundImage: "linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)",
+            backgroundSize: "60px 60px",
+          }}
+        />
+      </div>
 
       {/* ══════════ NAVBAR ══════════ */}
       <nav className="relative z-30 border-b border-white/[0.06]">
