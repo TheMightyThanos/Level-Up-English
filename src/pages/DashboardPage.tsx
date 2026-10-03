@@ -140,37 +140,53 @@ export default function DashboardPage() {
     async function fetchLeaderboards() {
       if (!supabase) return;
 
-      // Global Leaderboard: Aggregate scores by user
+      const { data: pkgs } = await supabase.from('exam_packages').select('id, title');
+      const packageMap: Record<string, string> = pkgs?.reduce((acc: any, p: any) => ({ ...acc, [p.id]: p.title }), {}) || {};
+
+      // Global Leaderboard: Highest individual scores across any package
       const { data: globalData, error: globalErr } = await supabase
-        .from('exam_results')
+        .from('exam_scores')
         .select(`
+          id,
           user_id,
+          package_id,
           score,
+          created_at,
           profiles(full_name)
-        `);
+        `)
+        .order('score', { ascending: false })
+        .limit(50);
 
       if (!globalErr && globalData) {
-        const aggregated: Record<string, any> = {};
-        globalData.forEach((row: any) => {
-          const userId = row.user_id;
-          if (!aggregated[userId]) {
+        const seenUsers = new Set();
+        const topUnique: any[] = [];
+        
+        for (const row of globalData) {
+          if (!seenUsers.has(row.user_id)) {
+            seenUsers.add(row.user_id);
             const name = row.profiles?.full_name || 'Unknown';
-            aggregated[userId] = {
-              id: userId,
+            let pkgTitle = packageMap[row.package_id] || row.package_id;
+            if (row.package_id === 'package1') pkgTitle = 'Question Set 1';
+            if (row.package_id === 'mock-skripsi') pkgTitle = 'Reading Section Only';
+            
+            let dateStr = '';
+            if (row.created_at) {
+              dateStr = new Date(row.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+            }
+
+            topUnique.push({
+              id: row.id || (row.user_id + '-' + row.package_id),
               name,
               initials: getInitials(name),
-              score: row.score
-            };
-          } else {
-            aggregated[userId].score += row.score;
+              score: row.score,
+              packageTitle: pkgTitle,
+              dateStr
+            });
+            if (topUnique.length === 5) break;
           }
-        });
+        }
         
-        const sortedGlobal = Object.values(aggregated)
-          .sort((a, b) => b.score - a.score)
-          .map((user, idx) => ({ ...user, rank: idx + 1 }))
-          .slice(0, 5); // top 5
-          
+        const sortedGlobal = topUnique.map((u, idx) => ({ ...u, rank: idx + 1 }));
         setGlobalLeaderboard(sortedGlobal);
       }
 
@@ -466,7 +482,7 @@ export default function DashboardPage() {
           <motion.div {...fadeUp(0.4)} className="mt-10 sm:mt-14">
             <div className="flex items-center gap-2 mb-6">
               <Trophy className="w-5 h-5 text-amber-400" />
-              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">Top Performers</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">Leaderboard (Top Global TOEFL)</h2>
             </div>
 
             <Card className="bg-white/[0.03] border-white/[0.08] backdrop-blur-md overflow-hidden p-1 sm:p-2">
@@ -499,7 +515,9 @@ export default function DashboardPage() {
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm sm:text-[15px] font-bold text-white truncate group-hover:text-violet-100 transition-colors">{user.name}</p>
-                          <p className="text-[10px] sm:text-xs text-white/40 font-medium truncate">Total Score</p>
+                          <p className="text-[10px] sm:text-xs text-white/40 font-medium truncate">
+                            {user.packageTitle} {user.dateStr ? `• ${user.dateStr}` : ''}
+                          </p>
                         </div>
                         <div className="text-right">
                           <span className="text-sm sm:text-base font-black text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(135deg, #c4b5fd, #818cf8)" }}>

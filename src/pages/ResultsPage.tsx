@@ -83,10 +83,27 @@ export default function ResultsPage() {
         return;
       }
 
-      // 2. Submit to Supabase `exam_results` for Leaderboard
+      // 2. Submit to Supabase `exam_scores` and `exam_results` for Leaderboard
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { error: dbError } = await supabase
+        // Prepare the package ID. If it's not a UUID, we can still try to save it if the DB allows TEXT.
+        // Otherwise, it might fail. We'll attempt to save to both tables.
+        
+        // Try inserting into exam_scores
+        const { error: scoresError } = await supabase
+          .from('exam_scores')
+          .insert({
+            user_id: user.id,
+            package_id: state.selectedTestId,
+            score: Math.round(finalScore)
+          });
+          
+        if (scoresError) {
+          console.error('[Results] Supabase exam_scores submission failed:', scoresError);
+        }
+
+        // Try inserting into exam_results for backward compatibility
+        const { error: resultsError } = await supabase
           .from('exam_results')
           .insert({
             user_id: user.id,
@@ -94,9 +111,8 @@ export default function ResultsPage() {
             score: Math.round(finalScore)
           });
         
-        if (dbError) {
-          console.error('[Results] Supabase submission failed:', dbError);
-          // We can still consider the test finished even if leaderboard update fails
+        if (resultsError) {
+          console.error('[Results] Supabase exam_results submission failed:', resultsError);
         }
       }
       
