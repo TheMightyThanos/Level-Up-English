@@ -279,6 +279,14 @@ export default function TestPage() {
           return;
         }
 
+        // Fetch package title to correctly assign audio overrides
+        const packageRes = await supabase
+          .from('exam_packages')
+          .select('title')
+          .eq('id', packageId)
+          .single();
+        const packageTitle = (packageRes.data?.title || '').toLowerCase();
+
         // Detect if this package contains Test 4 questions
         const isTest4 =
           packageId === '28ed5a50-31f3-4dd4-b229-3826e7510996' ||
@@ -375,12 +383,18 @@ export default function TestPage() {
           };
 
           if (type === 'listening' || (!type && qNum <= 50)) {
-            if (q.audio_url) {
-              if (packageId && packageId.length > 20) {
-                // Force correct audio for UUID packages
-                audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Test%201-Longman.mp3';
-              } else if (isTest4 && (q.audio_url.includes('TEST%202') || q.audio_url.includes('TEST 2'))) {
+            if (packageTitle.includes('set 2') || packageTitle.includes('test 2') || packageTitle.includes('soal 2')) {
+              audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Soal%20TEST%202.mp3';
+            } else if (packageTitle.includes('set 3') || packageTitle.includes('test 3') || packageTitle.includes('soal 3')) {
+              audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Soal%20TEST%203.mp4';
+            } else if (packageTitle.includes('uuid package') || packageTitle.includes('test 1')) {
+              audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Test%201-Longman.mp3';
+            } else if (q.audio_url) {
+              if (isTest4 && (q.audio_url.includes('TEST%202') || q.audio_url.includes('TEST 2'))) {
                 audioFile = '/audio/Listening Soal TEST 4.mp3';
+              } else if (packageId && packageId.length > 20 && !packageTitle) {
+                // Force correct audio for UUID packages if no title matched
+                audioFile = 'https://coomgargeznmhdsobvtu.supabase.co/storage/v1/object/public/audio-files/Listening%20Test%201-Longman.mp3';
               } else {
                 audioFile = q.audio_url;
               }
